@@ -1,13 +1,15 @@
 """entry_point 模块：导入 business_logic 触发工厂注册，并暴露 indicator_router。"""
 
-import cv2
 import numpy as np
-import requests
 
 from routers.base_router import BaseRouter
 from schemas.data_base import InputParamsBusiness
+from schemas.exceptions import InvalidParamsError
 from .schemas import IndicatorRequest
 from . import business_logic  # noqa: F401  导入即触发 @detection_factory.register("indicator_light")
+from .config import IndicatorLightConfig
+from .download import download_image
+from utils.async_utils import run_sync
 
 
 class IndicatorRouter(BaseRouter):
@@ -24,7 +26,7 @@ class IndicatorRouter(BaseRouter):
         t = getattr(model_params, "type", None) if model_params else None
         return str(t) if t is not None else None
 
-    def get_inputs(self, request_params: IndicatorRequest, image: np.ndarray):
+    async def get_inputs(self, request_params: IndicatorRequest, image: np.ndarray):
         # 注册参考图：在 AICameraModel 中按 Version == modelParams.type 匹配 ModelFile 并下载
         type_ = request_params.modelParams.type
         registered_image_file = ""
@@ -32,9 +34,15 @@ class IndicatorRouter(BaseRouter):
             if model.Version != type_:
                 continue
             registered_image_file = model.ModelFile
-        response = requests.get(registered_image_file)
-        image_data = np.frombuffer(response.content, np.uint8)
-        registered_image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+        if not registered_image_file:
+            raise InvalidParamsError(f"未找到型号 {type_} 对应的注册参考图")
+        cfg = IndicatorLightConfig()
+        registered_image = await run_sync(
+            download_image,
+            registered_image_file,
+            max_bytes=cfg.MAX_REGISTERED_IMAGE_MB * 1024 * 1024,
+            timeout=(cfg.DOWNLOAD_CONNECT_TIMEOUT, cfg.DOWNLOAD_READ_TIMEOUT),
+        )
         return InputParamsBusiness(image=image, registered=registered_image, product_type=str(type_))
 
 
