@@ -1,6 +1,11 @@
 import os
 
 
+def _env_hosts(name: str) -> tuple[str, ...]:
+    raw = os.getenv(name, "")
+    return tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
 class IndicatorLightConfig:
     """指示灯场景配置（原 config/indicator_light_config.py，迁入插件自描述）。"""
 
@@ -18,3 +23,4 @@ class IndicatorLightConfig:
     DOWNLOAD_CONNECT_TIMEOUT: float = float(os.getenv("INDICATOR_DOWNLOAD_CONNECT_TIMEOUT", "3"))
     DOWNLOAD_READ_TIMEOUT: float = float(os.getenv("INDICATOR_DOWNLOAD_READ_TIMEOUT", "10"))
     MAX_REGISTERED_IMAGE_MB: int = int(os.getenv("INDICATOR_MAX_REGISTERED_IMAGE_MB", "20"))
+    ALLOWED_HOSTS: tuple[str, ...] = _env_hosts("INDICATOR_ALLOWED_HOSTS")

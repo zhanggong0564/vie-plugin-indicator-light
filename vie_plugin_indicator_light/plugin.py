@@ -1,5 +1,8 @@
 """entry_point 模块：导入 business_logic 触发工厂注册，并暴露 indicator_router。"""
 
+import re
+from pathlib import Path
+
 import numpy as np
 
 from routers.base_router import BaseRouter
@@ -21,10 +24,39 @@ class IndicatorRouter(BaseRouter):
 
     @staticmethod
     def _extract_product_type(request_params):
-        # 本场景型号字段名为 modelParams.type(int)，重写基类默认提取使数据回流按型号分目录。
-        model_params = getattr(request_params, "modelParams", None)
-        t = getattr(model_params, "type", None) if model_params else None
-        return str(t) if t is not None else None
+        """数据回流按【物料号】分目录：取请求顶层 ``type``（如 A0SW2163）。
+
+        注意区分两个同名 ``type``：
+          - 顶层 ``type``（物料号，如 A0SW2163）：产品唯一编码，是样本归集的正确键 → 作目录名。
+          - ``modelParams.type``（int 1/2）：仅用于在 AICameraModel 中按 Version 匹配注册参考图，
+            是版本选择器，所有产品都收敛到 1/2，对按产品归集样本无意义。
+        顶层 type 缺失时返回 None，框架回退到 _unknown_model 目录。
+        """
+        t = getattr(request_params, "type", None)
+        return str(t).strip() if t else None
+
+    def resolve_backflow_target(self, original_filename, fallback_product_type=None):
+        """指示灯专属：沿用框架的场景/型号目录推导（型号=物料号，见 _extract_product_type），
+        仅把落盘文件名改为原图末尾时间戳（如 '风电-整机组装1-231-1782460558709.jpg'
+        → '1782460558709'）。取不到时间戳则保留框架默认（原图名去扩展名）。
+
+        最终落盘路径：
+            data/indicator_light/{YYYY-MM-DD}/{物料号}/{ok|ng}/images|records/{时间戳}.{ext|json}
+        """
+        target = super().resolve_backflow_target(original_filename, fallback_product_type)
+        timestamp = self._extract_timestamp(original_filename)
+        if timestamp:
+            target.save_stem = timestamp
+        return target
+
+    @staticmethod
+    def _extract_timestamp(filename):
+        """从原图名取末尾时间戳：纯数字名直接用；否则取最后一段 '-<digits>'。无则 None。"""
+        stem = Path(filename).stem
+        if stem.isdigit():
+            return stem
+        m = re.search(r"-(\d+)$", stem)
+        return m.group(1) if m else None
 
     async def get_inputs(self, request_params: IndicatorRequest, image: np.ndarray):
         # 注册参考图：在 AICameraModel 中按 Version == modelParams.type 匹配 ModelFile 并下载
@@ -42,6 +74,7 @@ class IndicatorRouter(BaseRouter):
             registered_image_file,
             max_bytes=cfg.MAX_REGISTERED_IMAGE_MB * 1024 * 1024,
             timeout=(cfg.DOWNLOAD_CONNECT_TIMEOUT, cfg.DOWNLOAD_READ_TIMEOUT),
+            allowed_hosts=cfg.ALLOWED_HOSTS,
         )
         return InputParamsBusiness(image=image, registered=registered_image, product_type=str(type_))
 

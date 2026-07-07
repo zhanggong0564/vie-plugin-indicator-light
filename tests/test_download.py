@@ -102,3 +102,29 @@ def test_rejects_invalid_image_bytes():
             session=session,
             resolver=_public_resolver,
         )
+
+
+def test_rejects_host_not_in_allowed_hosts():
+    with pytest.raises(InvalidImageError, match="不在允许列表"):
+        download_image(
+            "https://evil.example/image.jpg",
+            allowed_hosts=("example.com",),
+            resolver=lambda host, port: ["93.184.216.34"],
+        )
+
+
+def test_allows_host_in_allowed_hosts_and_decodes_image():
+    source = np.full((4, 5, 3), 127, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", source)
+    assert ok
+    session = _FakeSession(_FakeResponse([encoded.tobytes()]))
+
+    image = download_image(
+        "https://example.com/image.jpg",
+        allowed_hosts=("example.com",),
+        max_bytes=1024 * 1024,
+        session=session,
+        resolver=_public_resolver,
+    )
+
+    assert image.shape == source.shape

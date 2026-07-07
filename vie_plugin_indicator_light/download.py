@@ -2,7 +2,7 @@
 
 import ipaddress
 import socket
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 from urllib.parse import urlsplit
 
 import cv2
@@ -26,6 +26,7 @@ def download_image(
     *,
     max_bytes: int = 20 * 1024 * 1024,
     timeout: tuple[float, float] = (3.0, 10.0),
+    allowed_hosts: Optional[Iterable[str]] = None,
     session=requests,
     resolver: Callable[[str, int], Iterable[str]] = resolve_host_addresses,
 ) -> np.ndarray:
@@ -33,12 +34,16 @@ def download_image(
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise InvalidImageError("注册参考图 URL 非法")
+    hostname = parsed.hostname.lower()
+    allowed = {host.strip().lower() for host in (allowed_hosts or []) if host and host.strip()}
+    if allowed and hostname not in allowed:
+        raise InvalidImageError("注册参考图域名不在允许列表")
 
     try:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
     except ValueError as exc:
         raise InvalidImageError("注册参考图 URL 非法") from exc
-    addresses = list(resolver(parsed.hostname, port))
+    addresses = list(resolver(hostname, port))
     if not addresses:
         raise InvalidImageError("注册参考图域名未解析到有效地址")
     try:
