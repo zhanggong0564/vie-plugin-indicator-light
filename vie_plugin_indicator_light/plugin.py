@@ -1,6 +1,7 @@
 """entry_point 模块：导入 business_logic 触发工厂注册，并暴露 indicator_router。"""
 
 import re
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -8,11 +9,9 @@ import numpy as np
 from routers.base_router import BaseRouter
 from schemas.data_base import InputParamsBusiness
 from schemas.exceptions import InvalidParamsError
+from .registration.models import RegistrationDescriptor
 from .schemas import IndicatorRequest
 from . import business_logic  # noqa: F401  导入即触发 @detection_factory.register("indicator_light")
-from .config import IndicatorLightConfig
-from .download import download_image
-from utils.async_utils import run_sync
 
 
 class IndicatorRouter(BaseRouter):
@@ -59,24 +58,31 @@ class IndicatorRouter(BaseRouter):
         return m.group(1) if m else None
 
     async def get_inputs(self, request_params: IndicatorRequest, image: np.ndarray):
-        # 注册参考图：在 AICameraModel 中按 Version == modelParams.type 匹配 ModelFile 并下载
+        # 保持原有语义：存在多个相同 Version 时使用最后一条记录。
         type_ = request_params.modelParams.type
-        registered_image_file = ""
+        selected_model = None
         for model in request_params.AICameraModel or []:
             if model.Version != type_:
                 continue
-            registered_image_file = model.ModelFile
-        if not registered_image_file:
+            selected_model = model
+        if selected_model is None or not selected_model.ModelFile:
             raise InvalidParamsError(f"未找到型号 {type_} 对应的注册参考图")
-        cfg = IndicatorLightConfig()
-        registered_image = await run_sync(
-            download_image,
-            registered_image_file,
-            max_bytes=cfg.MAX_REGISTERED_IMAGE_MB * 1024 * 1024,
-            timeout=(cfg.DOWNLOAD_CONNECT_TIMEOUT, cfg.DOWNLOAD_READ_TIMEOUT),
-            allowed_hosts=cfg.ALLOWED_HOSTS,
+
+        descriptor = RegistrationDescriptor(
+            registration_id=selected_model.Id,
+            material_no=request_params.type,
+            product_name=selected_model.ProductName,
+            version=selected_model.Version,
+            model_file=selected_model.ModelFile,
+            create_time=selected_model.CreateTime,
+            update_time=selected_model.UpdateTime,
+            register_mode=request_params.modelParams.register_mode,
         )
-        return InputParamsBusiness(image=image, registered=registered_image, product_type=str(type_))
+        return InputParamsBusiness(
+            image=image,
+            product_type=str(type_),
+            extra={"registration": asdict(descriptor)},
+        )
 
 
 indicator_router = IndicatorRouter(
