@@ -29,10 +29,12 @@ class _FakeResponse:
 class _FakeSession:
     def __init__(self, response):
         self.response = response
+        self.calls = []
         self.timeout = None
         self.allow_redirects = None
 
     def get(self, url, **kwargs):
+        self.calls.append(url)
         self.timeout = kwargs["timeout"]
         self.allow_redirects = kwargs["allow_redirects"]
         assert kwargs["stream"] is True
@@ -55,12 +57,101 @@ def test_rejects_invalid_port():
         download_image("https://example.com:not-a-port/image.jpg")
 
 
-def test_rejects_private_resolved_address():
+def test_rejects_malformed_ipv6_without_resolution_or_request():
+    session = _FakeSession(_FakeResponse([]))
+    resolver_calls = []
+
+    with pytest.raises(InvalidImageError, match="注册参考图 URL 非法"):
+        download_image(
+            "https://[2001:db8::1/image.jpg",
+            session=session,
+            resolver=lambda host, port: resolver_calls.append((host, port)),
+        )
+
+    assert resolver_calls == []
+    assert session.calls == []
+
+
+def test_rejects_private_ip_literal_without_allowlist_before_request():
+    session = _FakeSession(_FakeResponse([]))
+
     with pytest.raises(InvalidImageError, match="内网"):
         download_image(
-            "http://example.com/image.jpg",
-            resolver=lambda host, port: ["127.0.0.1"],
+            "http://10.172.2.32/image.jpg",
+            session=session,
         )
+    assert session.calls == []
+
+
+def test_allows_allowlisted_private_ip_literal_and_decodes_image():
+    source = np.full((4, 5, 3), 127, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", source)
+    assert ok
+    session = _FakeSession(_FakeResponse([encoded.tobytes()]))
+
+    image = download_image(
+        "http://10.172.2.32/image.jpg",
+        allowed_hosts=("10.172.2.32",),
+        max_bytes=1024 * 1024,
+        session=session,
+    )
+
+    assert image.shape == source.shape
+    assert session.calls == ["http://10.172.2.32/image.jpg"]
+
+
+def test_allows_global_ip_literal_without_allowlist():
+    source = np.full((4, 5, 3), 127, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", source)
+    assert ok
+    session = _FakeSession(_FakeResponse([encoded.tobytes()]))
+
+    image = download_image("https://93.184.216.34/image.jpg", session=session)
+
+    assert image.shape == source.shape
+
+
+def test_rejects_unallowlisted_public_dns_before_resolution_or_request():
+    session = _FakeSession(_FakeResponse([]))
+    resolver_calls = []
+
+    with pytest.raises(InvalidImageError, match="不在允许列表"):
+        download_image(
+            "https://example.com/image.jpg",
+            session=session,
+            resolver=lambda host, port: resolver_calls.append((host, port)),
+        )
+    assert resolver_calls == []
+    assert session.calls == []
+
+
+def test_allows_allowlisted_dns_name_and_decodes_image():
+    source = np.full((4, 5, 3), 127, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", source)
+    assert ok
+    session = _FakeSession(_FakeResponse([encoded.tobytes()]))
+
+    image = download_image(
+        "https://images.internal/image.jpg",
+        allowed_hosts=("images.internal",),
+        session=session,
+        resolver=lambda host, port: ["10.172.2.32"],
+    )
+
+    assert image.shape == source.shape
+
+
+def test_rejects_malformed_resolved_address_even_when_host_is_allowlisted():
+    session = _FakeSession(_FakeResponse([]))
+
+    with pytest.raises(InvalidImageError, match="解析结果非法"):
+        download_image(
+            "https://images.internal/image.jpg",
+            allowed_hosts=("images.internal",),
+            session=session,
+            resolver=lambda host, port: ["not-an-ip"],
+        )
+    assert session.calls == []
 
 
 def test_streams_with_timeout_and_size_limit():
@@ -68,6 +159,7 @@ def test_streams_with_timeout_and_size_limit():
     with pytest.raises(InvalidImageError, match="过大"):
         download_image(
             "https://example.com/image.jpg",
+            allowed_hosts=("example.com",),
             max_bytes=10,
             timeout=(3.0, 10.0),
             session=session,
@@ -85,6 +177,7 @@ def test_decodes_valid_image():
 
     image = download_image(
         "https://example.com/image.jpg",
+        allowed_hosts=("example.com",),
         max_bytes=1024 * 1024,
         session=session,
         resolver=_public_resolver,
@@ -98,6 +191,7 @@ def test_rejects_invalid_image_bytes():
     with pytest.raises(InvalidImageError, match="解码失败"):
         download_image(
             "https://example.com/image.jpg",
+            allowed_hosts=("example.com",),
             max_bytes=1024,
             session=session,
             resolver=_public_resolver,
@@ -105,12 +199,16 @@ def test_rejects_invalid_image_bytes():
 
 
 def test_rejects_host_not_in_allowed_hosts():
+    session = _FakeSession(_FakeResponse([]))
+
     with pytest.raises(InvalidImageError, match="不在允许列表"):
         download_image(
             "https://evil.example/image.jpg",
             allowed_hosts=("example.com",),
+            session=session,
             resolver=lambda host, port: ["93.184.216.34"],
         )
+    assert session.calls == []
 
 
 def test_allows_host_in_allowed_hosts_and_decodes_image():
