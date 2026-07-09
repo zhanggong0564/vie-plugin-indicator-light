@@ -30,27 +30,41 @@ def download_image(
     session=requests,
     resolver: Callable[[str, int], Iterable[str]] = resolve_host_addresses,
 ) -> np.ndarray:
-    """从公网 HTTP(S) 地址流式下载图片，并限制超时与响应大小。"""
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise InvalidImageError("注册参考图 URL 非法")
-    hostname = parsed.hostname.lower()
-    allowed = {host.strip().lower() for host in (allowed_hosts or []) if host and host.strip()}
-    if allowed and hostname not in allowed:
-        raise InvalidImageError("注册参考图域名不在允许列表")
+    """从受控 HTTP(S) 地址下载图片。
 
+    DNS 主机名必须显式列入 ``allowed_hosts``；该配置表示调用方信任该
+    名称及其解析结果。IP 字面量直接校验，非公网地址同样必须显式允许。
+    """
     try:
+        parsed = urlsplit(url)
+        hostname_value = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not hostname_value:
+            raise InvalidImageError("注册参考图 URL 非法")
+        hostname = hostname_value.lower()
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
     except ValueError as exc:
         raise InvalidImageError("注册参考图 URL 非法") from exc
-    addresses = list(resolver(hostname, port))
-    if not addresses:
-        raise InvalidImageError("注册参考图域名未解析到有效地址")
+    allowed = {host.strip().lower() for host in (allowed_hosts or []) if host and host.strip()}
+
     try:
-        if any(not ipaddress.ip_address(address).is_global for address in addresses):
+        literal_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal_ip = None
+
+    if literal_ip is not None:
+        if not literal_ip.is_global and hostname not in allowed:
             raise InvalidImageError("注册参考图地址不允许访问内网")
-    except ValueError as exc:
-        raise InvalidImageError("注册参考图域名解析结果非法") from exc
+    else:
+        if hostname not in allowed:
+            raise InvalidImageError("注册参考图域名不在允许列表")
+        addresses = list(resolver(hostname, port))
+        if not addresses:
+            raise InvalidImageError("注册参考图域名未解析到有效地址")
+        try:
+            for address in addresses:
+                ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise InvalidImageError("注册参考图域名解析结果非法") from exc
 
     try:
         with session.get(
