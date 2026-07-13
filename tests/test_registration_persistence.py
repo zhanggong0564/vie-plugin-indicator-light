@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+pytest.importorskip("chromadb")
+
 from vie_plugin_indicator_light.registration.chroma_store import (
     ChromaRegistrationStore,
 )

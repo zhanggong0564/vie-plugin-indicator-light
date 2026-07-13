@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("chromadb")
+
 from vie_plugin_indicator_light.registration.chroma_store import (
     ChromaRegistrationStore,
     MAX_INT64,
