@@ -34,6 +34,13 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                 cfg.ModelPath.rec_model_path,
                 cfg.ConfThreshold.det,
             )
+        except ModelInferenceError as e:
+            vision_logger.error(f"IndicatorLightBusinessAPI init error: {e}")
+            raise ModelInferenceError(
+                e.error_msg,
+                scenario="indicator_light",
+                original_error=e,
+            ) from e
         except Exception as e:
             vision_logger.error(f"IndicatorLightBusinessAPI init error: {e}")
             raise ModelInferenceError("indicator_light 模型加载失败", scenario="indicator_light", original_error=e)

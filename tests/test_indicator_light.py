@@ -293,6 +293,23 @@ def test_cache_disabled_skips_fingerprint_and_uses_null_store():
     assert resolver_cls.call_args.kwargs["pipeline_fingerprint"] == "cache-disabled"
 
 
+def test_initialization_preserves_rec_v3_model_error_guidance():
+    from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI
+
+    model_error = ModelInferenceError(
+        "指示灯识别模型固定 batch 不支持，请使用或转换为 rec_v3.onnx"
+    )
+    with patch(
+        "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
+        side_effect=model_error,
+    ):
+        with pytest.raises(ModelInferenceError) as exc_info:
+            IndicatorLightBusinessAPI(MagicMock())
+
+    assert "rec_v3.onnx" in exc_info.value.error_msg
+    assert exc_info.value.context["original_error"] is model_error
+
+
 def test_cache_disabled_miss_detect_infers_registration_then_current():
     from schemas.data_base import InputParamsBusiness
     from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI

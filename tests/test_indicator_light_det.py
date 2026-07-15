@@ -147,8 +147,29 @@ def test_initialization_rejects_incompatible_model_metadata(
 ) -> None:
     runner = FakeRunner(input_infos=input_infos, output_infos=output_infos)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ModelInferenceError, match=message):
         IndicatorLightRecognition("unused.onnx", runner=runner)
+
+
+@pytest.mark.parametrize("fixed_side", ["input", "output"])
+def test_fixed_batch_error_explains_rec_v3_upgrade(fixed_side: str) -> None:
+    input_batch = 1 if fixed_side == "input" else "batch"
+    output_batch = 1 if fixed_side == "output" else "batch"
+    runner = FakeRunner(
+        input_infos=(
+            TensorInfo("input", (input_batch, 3, 224, 224), "tensor(float)"),
+        ),
+        output_infos=(
+            TensorInfo("embedding", (output_batch, 128), "tensor(float)"),
+        ),
+    )
+
+    with pytest.raises(ModelInferenceError) as exc_info:
+        IndicatorLightRecognition("rec_v2.onnx", runner=runner)
+
+    assert "固定 batch 不支持" in exc_info.value.error_msg
+    assert "rec_v3.onnx" in exc_info.value.error_msg
+    assert "转换" in exc_info.value.error_msg
 
 
 @pytest.mark.parametrize(

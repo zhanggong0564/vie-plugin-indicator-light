@@ -47,19 +47,29 @@ class IndicatorLightRecognition(BaseOnnxInfer):
     @staticmethod
     def _validate_model_metadata(runner: InferenceRunner) -> None:
         if len(runner.input_infos) != 1 or len(runner.output_infos) != 1:
-            raise ValueError("recognition model must have one input and one output")
+            raise ModelInferenceError(
+                "recognition model must have one input and one output"
+            )
         input_shape = runner.input_infos[0].shape
         output_shape = runner.output_infos[0].shape
         if not input_shape or isinstance(input_shape[0], int):
-            raise ValueError("recognition model input must use dynamic batch")
+            raise ModelInferenceError(
+                "recognition model input must use dynamic batch；固定 batch 不支持，"
+                "请使用 rec_v3.onnx 或将旧识别模型转换为 rec_v3.onnx"
+            )
         if not output_shape or isinstance(output_shape[0], int):
-            raise ValueError("recognition model output must use dynamic batch")
+            raise ModelInferenceError(
+                "recognition model output must use dynamic batch；固定 batch 不支持，"
+                "请使用 rec_v3.onnx 或将旧识别模型转换为 rec_v3.onnx"
+            )
         if (
             len(output_shape) < 2
             or not isinstance(output_shape[1], int)
             or output_shape[1] <= 0
         ):
-            raise ValueError("recognition model embedding dimension must be positive")
+            raise ModelInferenceError(
+                "recognition model embedding dimension must be positive"
+            )
 
     def _preprocess_image(self, im: np.ndarray) -> np.ndarray:
         img = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
