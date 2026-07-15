@@ -59,6 +59,44 @@ def test_convert_dynamic_batch_rejects_same_path(tmp_path: Path) -> None:
         convert_dynamic_batch(source, source)
 
 
+@pytest.mark.parametrize("value_kind", ["input", "output"])
+def test_convert_dynamic_batch_rejects_multiple_values(
+    tmp_path: Path, value_kind: str
+) -> None:
+    source = tmp_path / "fixed.onnx"
+    destination = tmp_path / "dynamic.onnx"
+    model = _create_fixed_batch_model(source)
+    extra = helper.make_tensor_value_info(
+        f"extra_{value_kind}", TensorProto.FLOAT, [1, 3, 32, 100]
+    )
+    getattr(model.graph, value_kind).append(extra)
+    onnx.save(model, source)
+
+    with pytest.raises(
+        ValueError, match="recognition model must have one input and one output"
+    ):
+        convert_dynamic_batch(source, destination)
+
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize("value_kind", ["input", "output"])
+def test_convert_dynamic_batch_rejects_value_without_dimensions(
+    tmp_path: Path, value_kind: str
+) -> None:
+    source = tmp_path / "fixed.onnx"
+    destination = tmp_path / "dynamic.onnx"
+    model = _create_fixed_batch_model(source)
+    value_info = getattr(model.graph, value_kind)[0]
+    value_info.type.tensor_type.shape.ClearField("dim")
+    onnx.save(model, source)
+
+    with pytest.raises(ValueError, match=f"tensor {value_info.name!r} has no dimensions"):
+        convert_dynamic_batch(source, destination)
+
+    assert not destination.exists()
+
+
 def test_cli_creates_requested_output(tmp_path: Path) -> None:
     source = tmp_path / "fixed.onnx"
     destination = tmp_path / "output" / "dynamic.onnx"
@@ -82,3 +120,26 @@ def test_cli_creates_requested_output(tmp_path: Path) -> None:
     assert result.stdout.strip() == str(destination)
     converted = onnx.load(destination)
     assert converted.graph.input[0].type.tensor_type.shape.dim[0].dim_param == "n"
+    assert converted.graph.output[0].type.tensor_type.shape.dim[0].dim_param == "n"
+
+
+def test_cli_rejects_empty_symbol_without_creating_output(tmp_path: Path) -> None:
+    source = tmp_path / "fixed.onnx"
+    destination = tmp_path / "output" / "dynamic.onnx"
+    _create_fixed_batch_model(source)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/convert_rec_dynamic_batch.py",
+            str(source),
+            str(destination),
+            "--symbol",
+            "  ",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert not destination.exists()
