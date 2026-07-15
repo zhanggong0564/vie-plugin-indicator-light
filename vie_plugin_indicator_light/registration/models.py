@@ -8,6 +8,37 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import numpy as np
+
+
+def normalize_embeddings(
+    embeddings: Sequence[Iterable[float]],
+) -> tuple[tuple[float, ...], ...]:
+    arrays = [np.asarray(vector, dtype=np.float64) for vector in embeddings]
+    if not arrays:
+        raise ValueError("embeddings cannot be empty")
+
+    ranks = {array.ndim for array in arrays}
+    if len(ranks) != 1 or not ranks <= {1, 2}:
+        raise ValueError("embeddings must use a consistent vector representation")
+    if ranks == {2}:
+        if any(array.shape[0] != 1 for array in arrays):
+            raise ValueError("legacy embeddings must contain singleton wrappers")
+        arrays = [array[0] for array in arrays]
+
+    normalized = tuple(tuple(float(value) for value in vector) for vector in arrays)
+    dimensions = {len(vector) for vector in normalized}
+    if dimensions == {0}:
+        raise ValueError("embeddings cannot contain zero-dimensional vectors")
+    if len(dimensions) != 1:
+        raise ValueError("embeddings have inconsistent dimensions")
+    if any(not math.isfinite(value) for vector in normalized for value in vector):
+        raise ValueError("embeddings must contain only finite values")
+    if any(not any(value != 0.0 for value in vector) for vector in normalized):
+        raise ValueError("embeddings cannot contain all-zero vectors")
+
+    return normalized
+
 
 @dataclass(frozen=True)
 class RegistrationDescriptor:
@@ -50,21 +81,7 @@ class CachedEmbeddingGeneration:
     version: int = 0
 
     def __post_init__(self) -> None:
-        normalized = tuple(tuple(float(value) for value in vector) for vector in self.embeddings)
-        if not normalized:
-            raise ValueError("embeddings cannot be empty")
-
-        dimensions = {len(vector) for vector in normalized}
-        if dimensions == {0}:
-            raise ValueError("embeddings cannot contain zero-dimensional vectors")
-        if len(dimensions) != 1:
-            raise ValueError("embeddings have inconsistent dimensions")
-        if any(not math.isfinite(value) for vector in normalized for value in vector):
-            raise ValueError("embeddings must contain only finite values")
-        if any(not any(value != 0.0 for value in vector) for vector in normalized):
-            raise ValueError("embeddings cannot contain all-zero vectors")
-
-        object.__setattr__(self, "embeddings", normalized)
+        object.__setattr__(self, "embeddings", normalize_embeddings(self.embeddings))
 
     @property
     def vector_dimension(self) -> int:
@@ -85,7 +102,7 @@ class CachedEmbeddingGeneration:
             source_fingerprint=source_fingerprint,
             pipeline_fingerprint=pipeline_fingerprint,
             generation_id=uuid.uuid4().hex,
-            embeddings=tuple(tuple(vector) for vector in embeddings),
+            embeddings=embeddings,
             material_no=material_no,
             version=version,
         )

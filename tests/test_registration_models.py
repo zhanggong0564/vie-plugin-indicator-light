@@ -5,6 +5,7 @@ import pytest
 from vie_plugin_indicator_light.registration.models import (
     CachedEmbeddingGeneration,
     RegistrationDescriptor,
+    normalize_embeddings,
     pipeline_fingerprint,
 )
 
@@ -79,6 +80,42 @@ def test_generation_create_normalizes_vectors_and_generates_identity():
 
     with pytest.raises(FrozenInstanceError):
         generation.generation_id = "replacement"
+
+
+def test_normalize_embeddings_accepts_legacy_singleton_wrappers():
+    assert normalize_embeddings([[[1, 2]], [[3, 4]]]) == (
+        (1.0, 2.0),
+        (3.0, 4.0),
+    )
+
+
+def test_generation_create_accepts_legacy_singleton_wrappers():
+    generation = CachedEmbeddingGeneration.create(
+        registration_id="registration-1",
+        source_fingerprint="source-fingerprint",
+        pipeline_fingerprint="pipeline-fingerprint",
+        embeddings=[[[1, 2]]],
+    )
+
+    assert generation.embeddings == ((1.0, 2.0),)
+
+
+@pytest.mark.parametrize(
+    "embeddings",
+    [
+        [[1, 2], [[3, 4]]],
+        [[[1, 2], [3, 4]]],
+        [1],
+        [[]],
+        [[1, 2], [3]],
+        [[0, 0]],
+        [[1, float("nan")]],
+        [[1, float("inf")]],
+    ],
+)
+def test_normalize_embeddings_rejects_invalid_shapes_and_values(embeddings):
+    with pytest.raises((TypeError, ValueError)):
+        normalize_embeddings(embeddings)
 
 
 @pytest.mark.parametrize(
