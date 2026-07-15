@@ -24,7 +24,7 @@ class IndicatorLightConfig:
 
     class ModelPath:
         det_model_path: str = "./weights/indicator_light/det_yolo_v2.onnx"
-        rec_model_path: str = "./weights/indicator_light/rec_v2.onnx"
+        rec_model_path: str = "./weights/indicator_light/rec_v3.onnx"
 
     class ConfThreshold:
         det: float = 0.25

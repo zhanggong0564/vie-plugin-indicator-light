@@ -255,7 +255,7 @@ def test_initialization_uses_model_fingerprint_and_secure_download_options():
 
     fingerprint.assert_called_once_with(
         "./weights/indicator_light/det_yolo_v2.onnx",
-        "./weights/indicator_light/rec_v2.onnx",
+        "./weights/indicator_light/rec_v3.onnx",
     )
     store_factory.assert_called_once_with(
         "./data/indicator_light/chroma",
