@@ -114,7 +114,7 @@ class IndicatorLightRecognition(BaseOnnxInfer):
 
 
 class IndicatorLightDetRec:
-    """检测 + 识别组合：det 找 roi → 按 x 排序 → 逐 roi 出 embedding。"""
+    """检测 + 识别组合：det 找 roi → 按 x 排序 → 批量输出 embedding。"""
 
     def __init__(self, det_model_path, rec_model_path, confThreshold=0.5, nmsThreshold=0.5):
         self.det = IndicatorLightDet(det_model_path, confThreshold, nmsThreshold)
@@ -127,18 +127,22 @@ class IndicatorLightDetRec:
         for box, score in zip(det_result.boxes, det_result.scores):
             x1, y1, x2, y2 = map(int, box[:4])
             boxes.append([x1, y1, x2, y2, score])
+        if not boxes:
+            return IndicatorLightEmbedding()
         sorted_boxes = np.array(sort_boxes(boxes)[0])  # 按 x1 排序
-        embeddings = []
+        rois = []
         for box in sorted_boxes:
             x_min, y_min, x_max, y_max, score = box
             roi = image[
                 max(int(y_min - 10), 0): min(int(y_max + 10), h),
                 max(int(x_min - 10), 0): min(int(x_max + 10), w),
             ]
-            embedding = self.rec.infer(roi)
-            embeddings.append(embedding.tolist())
+            if roi.size == 0:
+                raise ModelInferenceError("detected ROI is empty after clipping")
+            rois.append(roi)
+        embedding_array = self.rec.infer_batch(rois)
         return IndicatorLightEmbedding(
-            embeddings=embeddings,
-            boxes=sorted_boxes[:, :4].tolist() if len(embeddings) > 0 else [],
-            scores=sorted_boxes[:, 4].tolist() if len(embeddings) > 0 else [],
+            embeddings=embedding_array.tolist(),
+            boxes=sorted_boxes[:, :4].tolist(),
+            scores=sorted_boxes[:, 4].tolist(),
         )

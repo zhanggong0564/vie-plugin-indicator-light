@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
@@ -5,7 +6,10 @@ import pytest
 
 from services.base.inference_runner import TensorInfo
 from schemas.exceptions import ModelInferenceError
-from vie_plugin_indicator_light.indicator_light_det import IndicatorLightRecognition
+from vie_plugin_indicator_light.indicator_light_det import (
+    IndicatorLightDetRec,
+    IndicatorLightRecognition,
+)
 
 
 class FakeRunner:
@@ -25,6 +29,65 @@ class FakeRunner:
                 else [np.zeros((2, 128), dtype=np.float32)]
             )
         )
+
+
+def test_det_rec_batches_sorted_expanded_rois_and_aligns_results() -> None:
+    detector = IndicatorLightDetRec.__new__(IndicatorLightDetRec)
+    detector.det = Mock()
+    detector.det.infer.return_value = SimpleNamespace(
+        boxes=[[60.0, 10.0, 80.0, 30.0], [10.0, 20.0, 30.0, 40.0]],
+        scores=[0.9, 0.8],
+    )
+    detector.rec = Mock()
+    detector.rec.infer_batch.return_value = np.array(
+        [[1.0, 2.0], [3.0, 4.0]], dtype=np.float32
+    )
+    image = np.zeros((45, 85, 3), dtype=np.uint8)
+    image[:, :, 0] = np.arange(85, dtype=np.uint8)
+    image[:, :, 1] = np.arange(45, dtype=np.uint8)[:, None]
+
+    result = detector.infer(image)
+
+    detector.rec.infer_batch.assert_called_once()
+    rois = detector.rec.infer_batch.call_args.args[0]
+    assert len(rois) == 2
+    assert rois[0].shape == (35, 40, 3)
+    assert rois[0][0, 0, :2].tolist() == [0, 10]
+    assert rois[0][-1, -1, :2].tolist() == [39, 44]
+    assert rois[1].shape == (40, 35, 3)
+    assert rois[1][0, 0, :2].tolist() == [50, 0]
+    assert rois[1][-1, -1, :2].tolist() == [84, 39]
+    assert result.boxes == [[10.0, 20.0, 30.0, 40.0], [60.0, 10.0, 80.0, 30.0]]
+    assert result.scores == [0.8, 0.9]
+    assert result.embeddings == [[1.0, 2.0], [3.0, 4.0]]
+
+
+def test_det_rec_empty_detection_skips_recognition() -> None:
+    detector = IndicatorLightDetRec.__new__(IndicatorLightDetRec)
+    detector.det = Mock()
+    detector.det.infer.return_value = SimpleNamespace(boxes=[], scores=[])
+    detector.rec = Mock()
+
+    result = detector.infer(np.zeros((20, 30, 3), dtype=np.uint8))
+
+    detector.rec.infer_batch.assert_not_called()
+    assert result.boxes == []
+    assert result.scores == []
+    assert result.embeddings == []
+
+
+def test_det_rec_rejects_empty_roi_before_batch_recognition() -> None:
+    detector = IndicatorLightDetRec.__new__(IndicatorLightDetRec)
+    detector.det = Mock()
+    detector.det.infer.return_value = SimpleNamespace(
+        boxes=[[100.0, 100.0, 110.0, 110.0]], scores=[0.7]
+    )
+    detector.rec = Mock()
+
+    with pytest.raises(ModelInferenceError, match="ROI"):
+        detector.infer(np.zeros((20, 30, 3), dtype=np.uint8))
+
+    detector.rec.infer_batch.assert_not_called()
 
 
 def test_infer_batch_empty_returns_typed_embedding_matrix_without_running() -> None:
