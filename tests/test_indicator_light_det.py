@@ -119,3 +119,26 @@ def test_infer_batch_rejects_outputs_that_violate_embedding_contract(
 
     with pytest.raises(ModelInferenceError, match=message):
         recognizer.infer_batch(rois)
+
+
+@pytest.mark.parametrize(
+    ("runner_output", "message"),
+    [
+        (None, "exactly one output"),
+        (42, "exactly one output"),
+        ([np.zeros((2, 128), dtype=np.int32)], "floating-point"),
+    ],
+)
+def test_infer_batch_rejects_non_sequence_and_non_float_outputs(
+    runner_output, message
+) -> None:
+    runner = FakeRunner()
+    runner.run.return_value = runner_output
+    recognizer = IndicatorLightRecognition("unused.onnx", runner=runner)
+    rois = [
+        np.zeros((32, 48, 3), dtype=np.uint8),
+        np.zeros((64, 24, 3), dtype=np.uint8),
+    ]
+
+    with pytest.raises(ModelInferenceError, match=message):
+        recognizer.infer_batch(rois)

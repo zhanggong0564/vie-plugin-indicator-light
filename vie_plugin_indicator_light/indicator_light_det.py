@@ -83,7 +83,11 @@ class IndicatorLightRecognition(BaseOnnxInfer):
         return self._validate_embeddings(outputs, len(rois))
 
     def _validate_embeddings(self, outputs, expected_batch: int) -> np.ndarray:
-        if len(outputs) != 1 or not isinstance(outputs[0], np.ndarray):
+        if (
+            not isinstance(outputs, Sequence)
+            or len(outputs) != 1
+            or not isinstance(outputs[0], np.ndarray)
+        ):
             raise ModelInferenceError(
                 "recognition model must return exactly one output array"
             )
@@ -94,6 +98,10 @@ class IndicatorLightRecognition(BaseOnnxInfer):
         if embeddings.shape != expected_shape:
             raise ModelInferenceError(
                 f"recognition embedding output shape must be {expected_shape}"
+            )
+        if not np.issubdtype(embeddings.dtype, np.floating):
+            raise ModelInferenceError(
+                "recognition embedding output must use a floating-point dtype"
             )
         if not np.isfinite(embeddings).all():
             raise ModelInferenceError(
