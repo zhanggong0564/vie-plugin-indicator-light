@@ -13,10 +13,18 @@ from schemas.exceptions import InvalidImageError, ModelInferenceError
 _DEFAULT = object()
 
 
+def _mock_runners():
+    return patch(
+        "vie_plugin_indicator_light.business_logic.create_inference_runner",
+        side_effect=[MagicMock(), MagicMock()],
+    )
+
+
 @pytest.fixture
 def api():
     """绕过真实模型、权重哈希和 Chroma 初始化。"""
     with (
+        _mock_runners(),
         patch("vie_plugin_indicator_light.business_logic.IndicatorLightDetRec"),
         patch("vie_plugin_indicator_light.business_logic.pipeline_fingerprint", return_value="pipeline-v1"),
         patch("vie_plugin_indicator_light.business_logic._create_chroma_store"),
@@ -246,6 +254,7 @@ def test_initialization_uses_model_fingerprint_and_secure_download_options():
     from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI
 
     with (
+        _mock_runners(),
         patch("vie_plugin_indicator_light.business_logic.IndicatorLightDetRec"),
         patch("vie_plugin_indicator_light.business_logic.pipeline_fingerprint", return_value="fp") as fingerprint,
         patch("vie_plugin_indicator_light.business_logic._create_chroma_store") as store_factory,
@@ -276,6 +285,7 @@ def test_cache_disabled_skips_fingerprint_and_uses_null_store():
     from vie_plugin_indicator_light.registration.store import NullRegistrationStore
 
     with (
+        _mock_runners(),
         patch("vie_plugin_indicator_light.business_logic.IndicatorLightDetRec"),
         patch(
             "vie_plugin_indicator_light.business_logic.pipeline_fingerprint",
@@ -299,9 +309,12 @@ def test_initialization_preserves_rec_v3_model_error_guidance():
     model_error = ModelInferenceError(
         "指示灯识别模型固定 batch 不支持，请使用或转换为 rec_v3.onnx"
     )
-    with patch(
-        "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
-        side_effect=model_error,
+    with (
+        _mock_runners(),
+        patch(
+            "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
+            side_effect=model_error,
+        ),
     ):
         with pytest.raises(ModelInferenceError) as exc_info:
             IndicatorLightBusinessAPI(MagicMock())
@@ -322,6 +335,7 @@ def test_cache_disabled_miss_detect_infers_registration_then_current():
         _embedding_result(),
     ]
     with (
+        _mock_runners(),
         patch(
             "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
             return_value=detector,
@@ -373,6 +387,7 @@ def test_legacy_detect_infers_registration_then_current():
         _embedding_result(),
     ]
     with (
+        _mock_runners(),
         patch(
             "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
             return_value=detector,
@@ -402,6 +417,7 @@ def test_chroma_init_failure_falls_back_to_null_store():
     from vie_plugin_indicator_light.registration.store import NullRegistrationStore
 
     with (
+        _mock_runners(),
         patch("vie_plugin_indicator_light.business_logic.IndicatorLightDetRec"),
         patch("vie_plugin_indicator_light.business_logic.pipeline_fingerprint", return_value="fp"),
         patch("vie_plugin_indicator_light.business_logic._create_chroma_store", side_effect=RuntimeError("secret")),
@@ -420,6 +436,7 @@ def test_chromadb_import_failure_falls_back_to_null_store():
     from vie_plugin_indicator_light.registration.store import NullRegistrationStore
 
     with (
+        _mock_runners(),
         patch("vie_plugin_indicator_light.business_logic.IndicatorLightDetRec"),
         patch("vie_plugin_indicator_light.business_logic.pipeline_fingerprint", return_value="fp"),
         patch(
@@ -449,6 +466,11 @@ sys.meta_path.insert(0, BlockChroma())
 import vie_plugin_indicator_light.business_logic as business_logic
 assert "chromadb" not in sys.modules
 with (
+    patch.object(
+        business_logic,
+        "create_inference_runner",
+        side_effect=[MagicMock(), MagicMock()],
+    ),
     patch.object(business_logic, "IndicatorLightDetRec"),
     patch.object(
         business_logic,
