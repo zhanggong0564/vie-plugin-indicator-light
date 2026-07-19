@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from services.base.inference_runner import TensorInfo
+from services.inference import TensorInfo
 from schemas.exceptions import ModelInferenceError
 from vie_plugin_indicator_light.indicator_light_det import (
     IndicatorLightDetRec,
@@ -29,6 +29,7 @@ class FakeRunner:
                 else [np.zeros((2, 128), dtype=np.float32)]
             )
         )
+        self.close = Mock()
 
 
 def test_det_rec_batches_sorted_expanded_rois_and_aligns_results() -> None:
@@ -92,7 +93,7 @@ def test_det_rec_rejects_empty_roi_before_batch_recognition() -> None:
 
 def test_infer_batch_empty_returns_typed_embedding_matrix_without_running() -> None:
     runner = FakeRunner()
-    recognizer = IndicatorLightRecognition("unused.onnx", runner=runner)
+    recognizer = IndicatorLightRecognition(runner=runner)
 
     result = recognizer.infer_batch([])
 
@@ -103,7 +104,7 @@ def test_infer_batch_empty_returns_typed_embedding_matrix_without_running() -> N
 
 def test_infer_batch_preprocesses_all_rois_in_one_runner_call() -> None:
     runner = FakeRunner()
-    recognizer = IndicatorLightRecognition("unused.onnx", runner=runner)
+    recognizer = IndicatorLightRecognition(runner=runner)
     roi_a = np.zeros((32, 48, 3), dtype=np.uint8)
     roi_b = np.full((64, 24, 3), 255, dtype=np.uint8)
 
@@ -148,7 +149,7 @@ def test_initialization_rejects_incompatible_model_metadata(
     runner = FakeRunner(input_infos=input_infos, output_infos=output_infos)
 
     with pytest.raises(ModelInferenceError, match=message):
-        IndicatorLightRecognition("unused.onnx", runner=runner)
+        IndicatorLightRecognition(runner=runner)
 
 
 @pytest.mark.parametrize("fixed_side", ["input", "output"])
@@ -165,7 +166,7 @@ def test_fixed_batch_error_explains_rec_v3_upgrade(fixed_side: str) -> None:
     )
 
     with pytest.raises(ModelInferenceError) as exc_info:
-        IndicatorLightRecognition("rec_v2.onnx", runner=runner)
+        IndicatorLightRecognition(runner=runner)
 
     assert "固定 batch 不支持" in exc_info.value.error_msg
     assert "rec_v3.onnx" in exc_info.value.error_msg
@@ -195,7 +196,7 @@ def test_infer_batch_rejects_outputs_that_violate_embedding_contract(
     outputs, message
 ) -> None:
     runner = FakeRunner(outputs=outputs)
-    recognizer = IndicatorLightRecognition("unused.onnx", runner=runner)
+    recognizer = IndicatorLightRecognition(runner=runner)
     rois = [
         np.zeros((32, 48, 3), dtype=np.uint8),
         np.zeros((64, 24, 3), dtype=np.uint8),
@@ -218,7 +219,7 @@ def test_infer_batch_rejects_non_sequence_and_non_float_outputs(
 ) -> None:
     runner = FakeRunner()
     runner.run.return_value = runner_output
-    recognizer = IndicatorLightRecognition("unused.onnx", runner=runner)
+    recognizer = IndicatorLightRecognition(runner=runner)
     rois = [
         np.zeros((32, 48, 3), dtype=np.uint8),
         np.zeros((64, 24, 3), dtype=np.uint8),
@@ -226,3 +227,16 @@ def test_infer_batch_rejects_non_sequence_and_non_float_outputs(
 
     with pytest.raises(ModelInferenceError, match=message):
         recognizer.infer_batch(rois)
+
+
+def test_det_rec_close_attempts_both_models_when_first_close_fails() -> None:
+    detector = IndicatorLightDetRec.__new__(IndicatorLightDetRec)
+    detector.det = Mock()
+    detector.rec = Mock()
+    detector.det.close.side_effect = RuntimeError("det close failed")
+
+    with pytest.raises(RuntimeError, match="det close failed"):
+        detector.close()
+
+    detector.det.close.assert_called_once_with()
+    detector.rec.close.assert_called_once_with()
