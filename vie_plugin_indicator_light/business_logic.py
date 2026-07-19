@@ -2,8 +2,13 @@
 
 import numpy as np
 
-from services.api import detection_factory
 from services.base import BusinessLogicBase
+from services.inference import (
+    OnnxRuntimeOptions,
+    RunnerSpec,
+    create_inference_runner,
+)
+from services.scenario_registry import scenario_registry
 from schemas.data_base import IndicatorLightEmbedding, MoMResult, DetectionItem
 from schemas.exceptions import ModelInferenceError, VisionAPIError
 from schemas.inference_context import InferenceContext
@@ -23,18 +28,40 @@ def _create_chroma_store(path: str, collection: str, fingerprint: str):
     return ChromaRegistrationStore(path, collection, fingerprint)
 
 
-@detection_factory.register("indicator_light")
+@scenario_registry.register("indicator_light")
 class IndicatorLightBusinessAPI(BusinessLogicBase):
     def _initialize_model(self, settings):
         cfg = IndicatorLightConfig()
         self.sim_thr = cfg.SIM_THR
+        created_runners = []
+        pipeline = None
         try:
-            self.detector = IndicatorLightDetRec(
-                cfg.ModelPath.det_model_path,
-                cfg.ModelPath.rec_model_path,
-                cfg.ConfThreshold.det,
+            options = OnnxRuntimeOptions.from_settings(settings)
+            detection_runner = create_inference_runner(
+                RunnerSpec(
+                    scenario="indicator_light",
+                    onnx_path=cfg.ModelPath.det_model_path,
+                ),
+                options,
             )
+            created_runners.append(detection_runner)
+            recognition_runner = create_inference_runner(
+                RunnerSpec(
+                    scenario="indicator_light",
+                    onnx_path=cfg.ModelPath.rec_model_path,
+                ),
+                options,
+            )
+            created_runners.append(recognition_runner)
+            pipeline = IndicatorLightDetRec(
+                detection_runner=detection_runner,
+                recognition_runner=recognition_runner,
+                confThreshold=cfg.ConfThreshold.det,
+            )
+            self._initialize_registration(cfg, pipeline)
+            self.detector = pipeline
         except ModelInferenceError as e:
+            self._rollback_initialization(pipeline, created_runners)
             vision_logger.error(f"IndicatorLightBusinessAPI init error: {e}")
             raise ModelInferenceError(
                 e.error_msg,
@@ -42,11 +69,31 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                 original_error=e,
             ) from e
         except Exception as e:
+            self._rollback_initialization(pipeline, created_runners)
             vision_logger.error(f"IndicatorLightBusinessAPI init error: {e}")
-            raise ModelInferenceError("indicator_light 模型加载失败", scenario="indicator_light", original_error=e)
-        self._initialize_registration(cfg)
+            raise ModelInferenceError(
+                "indicator_light 模型加载失败",
+                scenario="indicator_light",
+                original_error=e,
+            ) from e
 
-    def _initialize_registration(self, cfg: IndicatorLightConfig) -> None:
+    @staticmethod
+    def _rollback_initialization(pipeline, created_runners) -> None:
+        resources = [pipeline] if pipeline is not None else created_runners
+        for resource in resources:
+            try:
+                resource.close()
+            except Exception as close_error:
+                vision_logger.warning(
+                    "indicator_light 初始化回滚清理失败: error_type={}",
+                    type(close_error).__name__,
+                )
+
+    def _initialize_registration(
+        self,
+        cfg: IndicatorLightConfig,
+        pipeline: IndicatorLightDetRec,
+    ) -> None:
         store = NullRegistrationStore()
         fingerprint = "cache-disabled"
         if cfg.INDICATOR_VECTOR_CACHE_ENABLED:
@@ -80,7 +127,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
         self.registration_resolver = RegistrationResolver(
             store=store,
             downloader=download_image,
-            infer=self.detector.infer,
+            infer=pipeline.infer,
             pipeline_fingerprint=fingerprint,
             download_options={
                 "max_bytes": cfg.MAX_REGISTERED_IMAGE_MB * 1024 * 1024,
