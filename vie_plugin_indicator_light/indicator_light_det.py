@@ -1,6 +1,6 @@
 """指示灯检测器：YOLO 检测 roi + 分类模型出 embedding，组合成 IndicatorLightDetRec。
 
-适配无状态 BaseOnnxInfer：preprocess→(tensor, PreprocMeta)，post_process(outputs, meta)。
+模型保持无每请求状态：preprocess 返回 tensor 和 PreprocMeta，post_process 消费二者。
 """
 
 from typing import Sequence, Tuple
@@ -8,38 +8,47 @@ from typing import Sequence, Tuple
 import cv2
 import numpy as np
 
-from services.yolo import YoloOnnxInfer
-from services.base import BaseOnnxInfer
-from services.base.inference_runner import InferenceRunner
-from services.utils import sort_boxes
+from services.base import BaseVisionInfer
+from services.inference import InferenceRunner
+from services.vision.boxes import sort_boxes
+from services.yolo import YoloInfer
 from schemas.data_base import IndicatorLightEmbedding
 from schemas.exceptions import ModelInferenceError
 from schemas.inference_context import PreprocMeta
 
 
-class IndicatorLightDet(YoloOnnxInfer):
+class IndicatorLightDet(YoloInfer):
     """指示灯 roi 检测（单类 det）。"""
 
-    def __init__(self, model_path, confThreshold=0.5, nmsThreshold=0.5, task="det"):
-        super().__init__(model_path, nc=1, confThreshold=confThreshold, nmsThreshold=nmsThreshold, task=task)
+    def __init__(
+        self,
+        runner: InferenceRunner,
+        confThreshold=0.5,
+        nmsThreshold=0.5,
+        task="det",
+    ):
+        super().__init__(
+            nc=1,
+            runner=runner,
+            confThreshold=confThreshold,
+            nmsThreshold=nmsThreshold,
+            task=task,
+        )
         self.id2name = {0: "roi"}
 
 
-class IndicatorLightRecognition(BaseOnnxInfer):
+class IndicatorLightRecognition(BaseVisionInfer):
     """指示灯分类/特征模型：输出 roi 的 embedding 向量。"""
 
     def __init__(
         self,
-        model_path: str,
+        *,
+        runner: InferenceRunner,
         img_size: Tuple[int, int] = (224, 224),
-        providers=None,
-        runner: InferenceRunner | None = None,
     ):
-        if runner is not None:
-            self._validate_model_metadata(runner)
-        super().__init__(model_path, providers=providers, runner=runner)
-        self._validate_model_metadata(self.runner)
-        self.embedding_dim = self.runner.output_infos[0].shape[1]
+        self._validate_model_metadata(runner)
+        super().__init__(runner)
+        self.embedding_dim = runner.output_infos[0].shape[1]
         self.img_size = img_size
         self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -126,9 +135,20 @@ class IndicatorLightRecognition(BaseOnnxInfer):
 class IndicatorLightDetRec:
     """检测 + 识别组合：det 找 roi → 按 x 排序 → 批量输出 embedding。"""
 
-    def __init__(self, det_model_path, rec_model_path, confThreshold=0.5, nmsThreshold=0.5):
-        self.det = IndicatorLightDet(det_model_path, confThreshold, nmsThreshold)
-        self.rec = IndicatorLightRecognition(rec_model_path)
+    def __init__(
+        self,
+        *,
+        detection_runner: InferenceRunner,
+        recognition_runner: InferenceRunner,
+        confThreshold=0.5,
+        nmsThreshold=0.5,
+    ):
+        self.det = IndicatorLightDet(
+            detection_runner,
+            confThreshold,
+            nmsThreshold,
+        )
+        self.rec = IndicatorLightRecognition(runner=recognition_runner)
 
     def infer(self, image: np.ndarray) -> IndicatorLightEmbedding:
         det_result = self.det.infer(image)
@@ -156,3 +176,14 @@ class IndicatorLightDetRec:
             boxes=sorted_boxes[:, :4].tolist(),
             scores=sorted_boxes[:, 4].tolist(),
         )
+
+    def close(self) -> None:
+        first_error = None
+        for model in (self.det, self.rec):
+            try:
+                model.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
