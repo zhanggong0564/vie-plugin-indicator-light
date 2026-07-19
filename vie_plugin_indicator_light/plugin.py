@@ -1,4 +1,4 @@
-"""entry_point 模块：导入 business_logic 触发工厂注册，并暴露 indicator_router。"""
+"""Entry point: register the scene and expose ``indicator_router``."""
 
 import re
 from dataclasses import asdict
@@ -11,7 +11,7 @@ from schemas.data_base import InputParamsBusiness
 from schemas.exceptions import InvalidParamsError
 from .registration.models import RegistrationDescriptor
 from .schemas import IndicatorRequest
-from . import business_logic  # noqa: F401  导入即触发 @detection_factory.register("indicator_light")
+from . import business_logic  # noqa: F401  触发 ScenarioRegistry 注册
 
 
 class IndicatorRouter(BaseRouter):
