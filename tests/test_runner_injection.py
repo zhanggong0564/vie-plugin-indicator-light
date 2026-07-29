@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -7,9 +8,9 @@ from services.scenario_registry import scenario_registry
 
 
 def _cache_disabled():
-    return patch(
-        "vie_plugin_indicator_light.business_logic.IndicatorLightConfig.INDICATOR_VECTOR_CACHE_ENABLED",
-        False,
+    return patch.dict(
+        os.environ,
+        {"INDICATOR_VECTOR_CACHE_ENABLED": "false"},
     )
 
 

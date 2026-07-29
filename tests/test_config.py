@@ -1,31 +1,31 @@
 import pytest
+from pydantic import ValidationError
 
-from vie_plugin_indicator_light.config import _env_bool
-
-
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes ", "On"])
-def test_env_bool_accepts_true_values(monkeypatch, value):
-    monkeypatch.setenv("TEST_BOOL", value)
-
-    assert _env_bool("TEST_BOOL", False) is True
+from vie_plugin_indicator_light.config import IndicatorLightConfig
 
 
-@pytest.mark.parametrize("value", ["0", "false", "FALSE", " no ", "Off"])
-def test_env_bool_accepts_false_values(monkeypatch, value):
-    monkeypatch.setenv("TEST_BOOL", value)
+def test_config_defaults(monkeypatch):
+    monkeypatch.delenv("INDICATOR_VECTOR_CACHE_ENABLED", raising=False)
 
-    assert _env_bool("TEST_BOOL", True) is False
+    config = IndicatorLightConfig()
 
-
-def test_env_bool_uses_default_when_missing(monkeypatch):
-    monkeypatch.delenv("TEST_BOOL", raising=False)
-
-    assert _env_bool("TEST_BOOL", True) is True
-    assert _env_bool("TEST_BOOL", False) is False
+    assert config.det_model_path.endswith("det_yolo_v2.onnx")
+    assert config.vector_cache_enabled is True
+    assert config.allowed_host_values == ()
 
 
-def test_env_bool_rejects_invalid_values(monkeypatch):
-    monkeypatch.setenv("TEST_BOOL", "sometimes")
+def test_config_reads_environment(monkeypatch):
+    monkeypatch.setenv("INDICATOR_VECTOR_CACHE_ENABLED", "false")
+    monkeypatch.setenv("INDICATOR_ALLOWED_HOSTS", "EXAMPLE.COM, api.local ")
 
-    with pytest.raises(ValueError, match="TEST_BOOL"):
-        _env_bool("TEST_BOOL", True)
+    config = IndicatorLightConfig()
+
+    assert config.vector_cache_enabled is False
+    assert config.allowed_host_values == ("example.com", "api.local")
+
+
+def test_config_rejects_invalid_boolean(monkeypatch):
+    monkeypatch.setenv("INDICATOR_VECTOR_CACHE_ENABLED", "sometimes")
+
+    with pytest.raises(ValidationError):
+        IndicatorLightConfig()

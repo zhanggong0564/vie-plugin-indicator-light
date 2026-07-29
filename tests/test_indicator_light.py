@@ -291,7 +291,10 @@ def test_cache_disabled_skips_fingerprint_and_uses_null_store():
             "vie_plugin_indicator_light.business_logic.pipeline_fingerprint",
             side_effect=FileNotFoundError("weights are absent"),
         ) as fingerprint,
-        patch("vie_plugin_indicator_light.business_logic.IndicatorLightConfig.INDICATOR_VECTOR_CACHE_ENABLED", False),
+        patch.dict(
+            os.environ,
+            {"INDICATOR_VECTOR_CACHE_ENABLED": "false"},
+        ),
         patch("vie_plugin_indicator_light.business_logic._create_chroma_store") as store_factory,
         patch("vie_plugin_indicator_light.business_logic.RegistrationResolver") as resolver_cls,
     ):
@@ -344,9 +347,9 @@ def test_cache_disabled_miss_detect_infers_registration_then_current():
             "vie_plugin_indicator_light.business_logic.pipeline_fingerprint",
             side_effect=FileNotFoundError("weights are absent"),
         ) as fingerprint,
-        patch(
-            "vie_plugin_indicator_light.business_logic.IndicatorLightConfig.INDICATOR_VECTOR_CACHE_ENABLED",
-            False,
+        patch.dict(
+            os.environ,
+            {"INDICATOR_VECTOR_CACHE_ENABLED": "false"},
         ),
         patch(
             "vie_plugin_indicator_light.business_logic.download_image",
@@ -392,9 +395,9 @@ def test_legacy_detect_infers_registration_then_current():
             "vie_plugin_indicator_light.business_logic.IndicatorLightDetRec",
             return_value=detector,
         ),
-        patch(
-            "vie_plugin_indicator_light.business_logic.IndicatorLightConfig.INDICATOR_VECTOR_CACHE_ENABLED",
-            False,
+        patch.dict(
+            os.environ,
+            {"INDICATOR_VECTOR_CACHE_ENABLED": "false"},
         ),
     ):
         api_instance = IndicatorLightBusinessAPI(MagicMock())
@@ -453,6 +456,7 @@ def test_chromadb_import_failure_falls_back_to_null_store():
 def test_business_logic_import_and_cache_disabled_init_do_not_require_chromadb():
     script = """
 import importlib.abc
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -477,10 +481,9 @@ with (
         "pipeline_fingerprint",
         side_effect=FileNotFoundError("weights are absent"),
     ) as fingerprint,
-    patch.object(
-        business_logic.IndicatorLightConfig,
-        "INDICATOR_VECTOR_CACHE_ENABLED",
-        False,
+    patch.dict(
+        os.environ,
+        {"INDICATOR_VECTOR_CACHE_ENABLED": "false"},
     ),
 ):
     business_logic.IndicatorLightBusinessAPI(MagicMock())

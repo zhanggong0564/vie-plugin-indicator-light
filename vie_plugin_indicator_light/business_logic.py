@@ -32,7 +32,7 @@ def _create_chroma_store(path: str, collection: str, fingerprint: str):
 class IndicatorLightBusinessAPI(BusinessLogicBase):
     def _initialize_model(self, settings):
         cfg = IndicatorLightConfig()
-        self.sim_thr = cfg.SIM_THR
+        self.sim_thr = cfg.sim_threshold
         created_runners = []
         pipeline = None
         try:
@@ -40,7 +40,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             detection_runner = create_inference_runner(
                 RunnerSpec(
                     scenario="indicator_light",
-                    onnx_path=cfg.ModelPath.det_model_path,
+                    onnx_path=cfg.det_model_path,
                 ),
                 options,
             )
@@ -48,7 +48,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             recognition_runner = create_inference_runner(
                 RunnerSpec(
                     scenario="indicator_light",
-                    onnx_path=cfg.ModelPath.rec_model_path,
+                    onnx_path=cfg.rec_model_path,
                 ),
                 options,
             )
@@ -56,7 +56,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             pipeline = IndicatorLightDetRec(
                 detection_runner=detection_runner,
                 recognition_runner=recognition_runner,
-                confThreshold=cfg.ConfThreshold.det,
+                confThreshold=cfg.det_conf_threshold,
             )
             self._initialize_registration(cfg, pipeline)
             self.detector = pipeline
@@ -96,11 +96,11 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
     ) -> None:
         store = NullRegistrationStore()
         fingerprint = "cache-disabled"
-        if cfg.INDICATOR_VECTOR_CACHE_ENABLED:
+        if cfg.vector_cache_enabled:
             try:
                 fingerprint = pipeline_fingerprint(
-                    cfg.ModelPath.det_model_path,
-                    cfg.ModelPath.rec_model_path,
+                    cfg.det_model_path,
+                    cfg.rec_model_path,
                 )
             except Exception as exc:
                 vision_logger.error(
@@ -114,8 +114,8 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                 ) from exc
             try:
                 store = _create_chroma_store(
-                    cfg.INDICATOR_VECTOR_CACHE_PATH,
-                    cfg.INDICATOR_VECTOR_COLLECTION,
+                    cfg.vector_cache_path,
+                    cfg.vector_collection,
                     fingerprint,
                 )
             except Exception as exc:
@@ -130,12 +130,12 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             infer=pipeline.infer,
             pipeline_fingerprint=fingerprint,
             download_options={
-                "max_bytes": cfg.MAX_REGISTERED_IMAGE_MB * 1024 * 1024,
+                "max_bytes": cfg.max_registered_image_mb * 1024 * 1024,
                 "timeout": (
-                    cfg.DOWNLOAD_CONNECT_TIMEOUT,
-                    cfg.DOWNLOAD_READ_TIMEOUT,
+                    cfg.download_connect_timeout,
+                    cfg.download_read_timeout,
                 ),
-                "allowed_hosts": cfg.ALLOWED_HOSTS,
+                "allowed_hosts": cfg.allowed_host_values,
             },
         )
 
