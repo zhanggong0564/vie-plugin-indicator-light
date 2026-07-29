@@ -246,3 +246,12 @@ def test_get_inputs_uses_last_matching_model(plugin_module):
         "update_time": None,
         "register_mode": False,
     }
+
+
+def test_backflow_target_uses_filename_timestamp(plugin_module):
+    target = plugin_module.indicator_router.resolve_backflow_target(
+        "风电-整机组装1-231-1782460558709.jpg",
+        "A0SW1821",
+    )
+
+    assert target.save_stem == "1782460558709"

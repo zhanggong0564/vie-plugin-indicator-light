@@ -1,7 +1,7 @@
 """Entry point: register the scene and expose ``indicator_router``."""
 
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -44,9 +44,7 @@ class IndicatorRouter(BaseRouter):
         """
         target = super().resolve_backflow_target(original_filename, fallback_product_type)
         timestamp = self._extract_timestamp(original_filename)
-        if timestamp:
-            target.save_stem = timestamp
-        return target
+        return replace(target, save_stem=timestamp) if timestamp else target
 
     @staticmethod
     def _extract_timestamp(filename):
