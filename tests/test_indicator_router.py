@@ -255,3 +255,15 @@ def test_backflow_target_uses_filename_timestamp(plugin_module):
     )
 
     assert target.save_stem == "1782460558709"
+
+
+def test_backflow_count_mismatch_uses_unmatch_directory(plugin_module):
+    assert plugin_module.indicator_router.backflow_service.classify_result(
+        {"status": "false", "backflow_category": "unmatch"}
+    ) == "unmatch"
+
+
+def test_backflow_regular_failure_still_uses_ng_directory(plugin_module):
+    assert plugin_module.indicator_router.backflow_service.classify_result(
+        {"status": "false"}
+    ) == "ng"

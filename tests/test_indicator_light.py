@@ -210,6 +210,7 @@ def test_business_post_process_count_mismatch(api):
     api.business_post_process(ctx)
     assert ctx.result.status is False
     assert "does not match" in ctx.result.error_msg
+    assert ctx.result.to_dict()["backflow_category"] == "unmatch"
 
 
 def test_compare_embedding_zero_vector_raises_model_error(api):
