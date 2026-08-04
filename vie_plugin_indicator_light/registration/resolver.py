@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Mapping, Protocol
+from typing import Any, Callable, Iterator, Mapping, Protocol
 
 from utils import vision_logger
 
@@ -74,6 +74,8 @@ class RegistrationResolver:
         pipeline_fingerprint: str,
         download_options: Mapping[str, Any],
         lock_registry: _RegistrationLockRegistry | None = None,
+        image_callback: Callable[[RegistrationDescriptor, Any], None] | None = None,
+        image_required: Callable[[RegistrationDescriptor], bool] | None = None,
     ) -> None:
         self._store = store
         self._downloader = downloader
@@ -81,6 +83,8 @@ class RegistrationResolver:
         self._pipeline_fingerprint = pipeline_fingerprint
         self._download_options = dict(download_options)
         self._locks = lock_registry or _PROCESS_REGISTRATION_LOCKS
+        self._image_callback = image_callback
+        self._image_required = image_required
 
     def resolve(
         self,
@@ -88,17 +92,28 @@ class RegistrationResolver:
     ) -> tuple[tuple[float, ...], ...]:
         cached = self._safe_get(descriptor)
         if cached is not None:
+            self._archive_cached_registration_if_needed(descriptor)
             return cached.embeddings
 
         with self._locks.acquire(descriptor.registration_id):
             cached = self._safe_get(descriptor)
             if cached is not None:
+                self._archive_cached_registration_if_needed(descriptor)
                 return cached.embeddings
 
             image = self._downloader(
                 descriptor.model_file,
                 **self._download_options,
             )
+            if self._image_callback is not None:
+                try:
+                    self._image_callback(descriptor, image)
+                except Exception as exc:
+                    vision_logger.warning(
+                        "注册图归档失败: registration_id={}, error_type={}",
+                        descriptor.registration_id,
+                        type(exc).__name__,
+                    )
             inference_result = self._infer(image)
             embeddings = getattr(inference_result, "embeddings", None)
             if embeddings is None:
@@ -115,6 +130,23 @@ class RegistrationResolver:
             )
             self._safe_replace(generation)
             return generation.embeddings
+
+    def _archive_cached_registration_if_needed(
+        self,
+        descriptor: RegistrationDescriptor,
+    ) -> None:
+        if self._image_required is None or not self._image_required(descriptor):
+            return
+        try:
+            image = self._downloader(descriptor.model_file, **self._download_options)
+            if self._image_callback is not None:
+                self._image_callback(descriptor, image)
+        except Exception as exc:
+            vision_logger.warning(
+                "缓存注册图归档失败: registration_id={}, error_type={}",
+                descriptor.registration_id,
+                type(exc).__name__,
+            )
 
     def _safe_get(
         self,

@@ -1,7 +1,14 @@
 """指示灯当前图与持久化注册 embedding 的业务比对。"""
 
+from datetime import datetime
+import os
+
+import cv2
 import numpy as np
 
+from config import settings
+from routers.backflow_service import BackflowService
+from routers.upload_persistence import write_bytes_atomically
 from services.base import BusinessLogicBase
 from services.inference import (
     OnnxRuntimeOptions,
@@ -137,7 +144,37 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                 ),
                 "allowed_hosts": cfg.allowed_host_values,
             },
+            image_callback=self._archive_registered_image,
+            image_required=self._registered_image_missing,
         )
+
+    @staticmethod
+    def _registered_image_path(descriptor) -> str:
+        material_no = BackflowService.sanitize_dir_name(descriptor.material_no)
+        registration_id = BackflowService.sanitize_dir_name(descriptor.registration_id)
+        return BackflowService.safe_path(
+            os.path.abspath(settings.DATA_DIR),
+            "indicator_light",
+            datetime.now().date().isoformat(),
+            material_no,
+            "registered",
+            f"{registration_id}.jpg",
+        )
+
+    @classmethod
+    def _registered_image_missing(cls, descriptor) -> bool:
+        return not os.path.exists(cls._registered_image_path(descriptor))
+
+    @classmethod
+    def _archive_registered_image(cls, descriptor, image: np.ndarray) -> None:
+        """按日期和物料号保存实际参与比对的注册图。"""
+        target = cls._registered_image_path(descriptor)
+        if os.path.exists(target):
+            return
+        encoded, payload = cv2.imencode(".jpg", image)
+        if not encoded:
+            raise ValueError("指示灯注册图编码失败")
+        write_bytes_atomically(payload.tobytes(), target)
 
     def preprocess_hook(self, ctx: InferenceContext) -> None:
         registration_data = ctx.extra.get("registration")
