@@ -26,6 +26,7 @@ from .indicator_light_det import IndicatorLightDetRec
 from .registration.models import RegistrationDescriptor, pipeline_fingerprint
 from .registration.resolver import RegistrationResolver
 from .registration.store import NullRegistrationStore
+from .schemas import IndicatorResult
 
 
 def _create_chroma_store(path: str, collection: str, fingerprint: str):
@@ -250,12 +251,13 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             raise ModelInferenceError("indicator_light 未找到当前图特征", scenario="indicator_light")
         if len(standard_embeddings) != len(current_embeddings):
             vision_logger.warning("检测到的指示灯数量与注册的标准特征数量不匹配，可能导致比对结果异常")
-            return MoMResult(
+            return IndicatorResult(
                 status=False,
                 error_msg=f"Number of ROIs does not match the registered standard image "
                           f"{len(standard_embeddings)}!={len(current_embeddings)}.",
                 message="失败",
                 detailList=[DetectionItem(status=False, scene="", coordinate=[], accuracy=0.0)],
+                backflow_category="unmatch",
             )
         if results.boxes is None:
             raise ModelInferenceError("indicator_light boxes 为空", scenario="indicator_light")

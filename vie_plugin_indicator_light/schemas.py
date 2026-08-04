@@ -1,7 +1,23 @@
-from pydantic import BaseModel, Field
+from dataclasses import dataclass
 from typing import List, Optional
 
+from pydantic import BaseModel, Field
+
 from schemas.common import AICameraModel, VisualReferenceParams
+from schemas.data_base import MoMResult
+
+
+@dataclass
+class IndicatorResult(MoMResult):
+    """指示灯结果附带场景专属的回流分类。"""
+
+    backflow_category: Optional[str] = None
+
+    def to_dict(self):
+        result = super().to_dict()
+        if self.backflow_category is not None:
+            result["backflow_category"] = self.backflow_category
+        return result
 
 
 class ModelParams(VisualReferenceParams):

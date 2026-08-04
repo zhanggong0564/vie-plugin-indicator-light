@@ -6,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from routers.base_router import BaseRouter
+from routers.backflow_service import BackflowService
+from routers.base_router import BaseRouter, DATA_DIR
 from schemas.data_base import InputParamsBusiness
 from schemas.exceptions import InvalidParamsError
 from .registration.models import RegistrationDescriptor
@@ -17,6 +18,11 @@ from . import business_logic  # noqa: F401  触发 ScenarioRegistry 注册
 class IndicatorRouter(BaseRouter):
     def __init__(self, router_name, api_path, summary, description, detector_type, tag=None):
         super().__init__(router_name, api_path, summary, description, detector_type, tag=tag)
+        self.backflow_service = IndicatorBackflowService(
+            self.detector_type,
+            self.resolve_backflow_target,
+            DATA_DIR,
+        )
 
     def request_schema(self, json_dict):
         return IndicatorRequest(**json_dict)
@@ -40,7 +46,7 @@ class IndicatorRouter(BaseRouter):
         → '1782460558709'）。取不到时间戳则保留框架默认（原图名去扩展名）。
 
         最终落盘路径：
-            data/indicator_light/{YYYY-MM-DD}/{物料号}/{ok|ng}/images|records/{时间戳}.{ext|json}
+            data/indicator_light/{YYYY-MM-DD}/{物料号}/{ok|ng|review|unmatch}/images|records/{时间戳}.{ext|json}
         """
         target = super().resolve_backflow_target(original_filename, fallback_product_type)
         timestamp = self._extract_timestamp(original_filename)
@@ -81,6 +87,14 @@ class IndicatorRouter(BaseRouter):
             product_type=str(type_),
             extra={"registration": asdict(descriptor)},
         )
+
+
+class IndicatorBackflowService(BackflowService):
+    @staticmethod
+    def classify_result(result_dict: dict) -> str:
+        if result_dict.get("backflow_category") == "unmatch":
+            return "unmatch"
+        return BackflowService.classify_result(result_dict)
 
 
 indicator_router = IndicatorRouter(
