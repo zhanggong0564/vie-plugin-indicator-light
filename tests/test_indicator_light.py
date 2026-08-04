@@ -13,6 +13,13 @@ from schemas.exceptions import InvalidImageError, ModelInferenceError
 _DEFAULT = object()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_backflow_data(monkeypatch, tmp_path):
+    from vie_plugin_indicator_light import business_logic
+
+    monkeypatch.setattr(business_logic.settings, "DATA_DIR", str(tmp_path))
+
+
 def _mock_runners():
     return patch(
         "vie_plugin_indicator_light.business_logic.create_inference_runner",

@@ -73,6 +73,27 @@ def test_cache_hit_skips_download_inference_and_write():
     store.replace.assert_not_called()
 
 
+def test_cache_hit_downloads_only_when_daily_archive_is_missing():
+    descriptor = _descriptor()
+    store = Mock()
+    store.get.return_value = _generation(descriptor)
+    image = object()
+    downloader = Mock(return_value=image)
+    callback = Mock()
+
+    result = _resolver(
+        store,
+        downloader=downloader,
+        infer=Mock(),
+        image_callback=callback,
+        image_required=Mock(return_value=True),
+    ).resolve(descriptor)
+
+    assert result == _generation(descriptor).embeddings
+    downloader.assert_called_once_with(descriptor.model_file, timeout=(1.0, 2.0))
+    callback.assert_called_once_with(descriptor, image)
+
+
 @pytest.mark.parametrize("mismatch", ["source", "pipeline"])
 def test_fingerprint_mismatch_is_treated_as_cache_miss(mismatch):
     descriptor = _descriptor()
@@ -120,6 +141,36 @@ def test_cache_miss_downloads_infers_validates_and_writes_once():
     assert generation.pipeline_fingerprint == "pipeline"
     assert generation.material_no == descriptor.material_no
     assert generation.version == descriptor.version
+
+
+def test_cache_miss_archives_downloaded_registration_image():
+    descriptor = _descriptor()
+    store = Mock()
+    store.get.return_value = None
+    image = object()
+    callback = Mock()
+
+    _resolver(
+        store,
+        downloader=Mock(return_value=image),
+        image_callback=callback,
+    ).resolve(descriptor)
+
+    callback.assert_called_once_with(descriptor, image)
+
+
+def test_registration_archive_failure_does_not_block_inference():
+    descriptor = _descriptor()
+    store = Mock()
+    store.get.return_value = None
+
+    result = _resolver(
+        store,
+        image_callback=Mock(side_effect=OSError("disk unavailable")),
+    ).resolve(descriptor)
+
+    assert result == ((1.0, 0.0),)
+    store.replace.assert_called_once()
 
 
 @pytest.mark.parametrize("field", ["material_no", "version"])
