@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- 数据回流新增 `unmatch` 分类，单独保存注册图与待测图指示灯数量不一致的样本；实际下载的注册图按日期、物料号和注册 ID 归档到 `registered` 目录，并保留既有 `review` 分类。
+
 本插件变更记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)
 规范，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
