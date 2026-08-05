@@ -4,7 +4,7 @@
     python plugins/vie-plugin-indicator-light/examples/run.py <当前图> <注册参考图>
 
 前置：已 `pip install -e plugins/vie-plugin-indicator-light`；
-      权重 ./weights/indicator_light/det_yolo_v2.onnx、indicator_light/rec_v3.onnx 就位。
+      权重 ./weights/indicator_light/rfdetr-small.onnx、indicator_light/rec_v3.onnx 就位。
 """
 import os
 import sys
