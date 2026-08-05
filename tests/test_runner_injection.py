@@ -44,7 +44,7 @@ def test_business_initialization_creates_and_injects_both_runners():
         call(
             RunnerSpec(
                 scenario="indicator_light",
-                onnx_path="./weights/indicator_light/det_yolo_v2.onnx",
+                onnx_path="./weights/indicator_light/rfdetr-small.onnx",
             ),
             options,
         ),
@@ -59,7 +59,7 @@ def test_business_initialization_creates_and_injects_both_runners():
     pipeline_class.assert_called_once_with(
         detection_runner=detection_runner,
         recognition_runner=recognition_runner,
-        confThreshold=0.25,
+        confThreshold=0.8,
     )
     assert api.detector is pipeline_class.return_value
 

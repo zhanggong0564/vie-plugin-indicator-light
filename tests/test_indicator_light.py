@@ -4,6 +4,7 @@ import pytest
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import call, patch, MagicMock
 
 from schemas.inference_context import InferenceContext
@@ -43,11 +44,25 @@ def api():
         yield instance
 
 
-def _embedding_result(embeddings=_DEFAULT, boxes=_DEFAULT, scores=_DEFAULT):
+def _embedding_result(
+    embeddings=_DEFAULT,
+    boxes=_DEFAULT,
+    scores=_DEFAULT,
+    image_shape=(10, 10),
+):
     return IndicatorLightEmbedding(
         embeddings=[[1.0, 0.0]] if embeddings is _DEFAULT else embeddings,
         boxes=[[1, 1, 2, 2]] if boxes is _DEFAULT else boxes,
         scores=[0.9] if scores is _DEFAULT else scores,
+        image_shape=image_shape,
+    )
+
+
+def _resolved_registration(result=None, image=None):
+    result = result or _embedding_result()
+    return SimpleNamespace(
+        generation=SimpleNamespace(to_inference_result=MagicMock(return_value=result)),
+        image=image,
     )
 
 
@@ -82,7 +97,7 @@ def test_preprocess_descriptor_resolves_registered_embeddings(api):
             }
         },
     )
-    api.registration_resolver.resolve.return_value = ((1.0, 0.0),)
+    api.registration_resolver.resolve.return_value = _resolved_registration()
 
     api.preprocess_hook(ctx)
 
@@ -96,7 +111,7 @@ def test_cache_hit_detect_infers_only_current_image(api):
     from schemas.data_base import InputParamsBusiness
 
     current_image = np.zeros((10, 10, 3), np.uint8)
-    api.registration_resolver.resolve.return_value = ((1.0, 0.0),)
+    api.registration_resolver.resolve.return_value = _resolved_registration()
     api.detector.infer.return_value = _embedding_result()
     request_extra = {"registration": _descriptor_dict()}
     params = InputParamsBusiness(
@@ -180,11 +195,13 @@ def test_business_post_process_all_match_without_registration_infer(api):
         embeddings=[[1.0, 0.0], [0.0, 1.0]],
         boxes=[[1, 1, 2, 2], [3, 3, 4, 4]],
         scores=[0.9, 0.8],
+        image_shape=(10, 10),
     )
     ctx.extra["registered_result"] = IndicatorLightEmbedding(
         embeddings=[[1.0, 0.0], [0.0, 1.0]],
         boxes=[[1, 1, 2, 2], [3, 3, 4, 4]],
         scores=[0.9, 0.8],
+        image_shape=(10, 10),
     )
     api.business_post_process(ctx)
     assert ctx.result.status is True
@@ -209,8 +226,44 @@ def test_business_post_process_count_mismatch(api):
         embeddings=[[1.0, 0.0], [0.0, 1.0]], boxes=[[1, 1, 2, 2], [3, 3, 4, 4]], scores=[0.9, 0.8])
     api.business_post_process(ctx)
     assert ctx.result.status is False
-    assert "does not match" in ctx.result.error_msg
+    assert "Unable to match" in ctx.result.error_msg
     assert ctx.result.to_dict()["backflow_category"] == "unmatch"
+
+
+def test_business_post_process_ignores_unmatched_extra_detection(api):
+    ctx = InferenceContext(
+        image=np.zeros((200, 300, 3), np.uint8),
+        h=200,
+        w=300,
+        registered=np.ones((200, 300, 3), np.uint8),
+    )
+    ctx.raw_result = _embedding_result(
+        embeddings=[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.5, 0.5]],
+        boxes=[
+            [90, 130, 110, 150],
+            [250, 180, 270, 198],
+            [30, 30, 50, 50],
+            [150, 35, 170, 55],
+        ],
+        scores=[0.9, 0.8, 0.95, 0.92],
+        image_shape=(200, 300),
+    )
+    ctx.extra["registered_result"] = _embedding_result(
+        embeddings=[[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]],
+        boxes=[[20, 20, 40, 40], [120, 25, 140, 45], [70, 120, 90, 140]],
+        scores=[0.9, 0.9, 0.9],
+        image_shape=(200, 300),
+    )
+
+    api.business_post_process(ctx)
+
+    assert ctx.result.status is True
+    assert len(ctx.result.detailList) == 3
+    assert [item.coordinate for item in ctx.result.detailList] == [
+        [30, 30, 50, 50],
+        [150, 35, 170, 55],
+        [90, 130, 110, 150],
+    ]
 
 
 def test_compare_embedding_zero_vector_raises_model_error(api):
@@ -271,7 +324,7 @@ def test_initialization_uses_model_fingerprint_and_secure_download_options():
         IndicatorLightBusinessAPI(MagicMock())
 
     fingerprint.assert_called_once_with(
-        "./weights/indicator_light/det_yolo_v2.onnx",
+        "./weights/indicator_light/rfdetr-small.onnx",
         "./weights/indicator_light/rec_v3.onnx",
     )
     store_factory.assert_called_once_with(

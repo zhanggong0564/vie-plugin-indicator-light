@@ -7,10 +7,12 @@ import pytest
 
 pytest.importorskip("chromadb")
 
-from vie_plugin_indicator_light.registration.chroma_store import (
-    ChromaRegistrationStore,
+from vie_plugin_indicator_light.registration.chroma_generation import (
     MAX_INT64,
     MIN_INT64,
+)
+from vie_plugin_indicator_light.registration.chroma_store import (
+    ChromaRegistrationStore,
     namespaced_collection_name,
 )
 from vie_plugin_indicator_light.registration.models import (
@@ -34,6 +36,8 @@ def generation(
         pipeline_fingerprint="pipeline-1",
         generation_id=generation_id,
         embeddings=embeddings,
+        boxes=tuple((0.1 * index, 0.1, 0.1 * index + 0.05, 0.2) for index in range(len(embeddings))),
+        image_shape=(100, 200),
         material_no="A0SW1821",
         version=1,
     )
@@ -58,6 +62,13 @@ def metadata(
         "created_at": created_at,
         "material_no": "A0SW1821",
         "version": 1,
+        "image_height": 100,
+        "image_width": 200,
+        "layout_version": 1,
+        "box_x1": 0.1 * roi_index,
+        "box_y1": 0.1,
+        "box_x2": 0.1 * roi_index + 0.05,
+        "box_y2": 0.2,
     }
 
 
@@ -82,6 +93,8 @@ def test_pipeline_namespaces_support_different_dimensions(tmp_path):
         pipeline_fingerprint="pipeline-2",
         generation_id="g2",
         embeddings=((1.0, 0.0, 0.0),),
+        boxes=((0.1, 0.1, 0.2, 0.2),),
+        image_shape=(100, 200),
         material_no="A0SW1821",
         version=1,
     )
@@ -152,6 +165,8 @@ def test_negative_version_round_trip(tmp_path):
         pipeline_fingerprint="pipeline-1",
         generation_id="g-negative",
         embeddings=((1.0, 0.0),),
+        boxes=((0.1, 0.1, 0.2, 0.2),),
+        image_shape=(100, 200),
         material_no="A0SW1821",
         version=-1,
     )
@@ -177,6 +192,32 @@ def test_inconsistent_diagnostic_metadata_is_ignored(tmp_path):
     records[1]["material_no"] = "OTHER"
     store._collection.upsert(
         ids=["model-1:bad:0", "model-1:bad:1"],
+        embeddings=[[1.0, 0.0], [0.0, 1.0]],
+        metadatas=records,
+    )
+
+    assert store.get("model-1", "source-1", "pipeline-1") is None
+
+
+def test_legacy_generation_without_layout_metadata_is_ignored(tmp_path):
+    store = ChromaRegistrationStore(tmp_path, COLLECTION)
+    records = [
+        metadata(generation_id="legacy", roi_index=0),
+        metadata(generation_id="legacy", roi_index=1),
+    ]
+    for record in records:
+        for key in (
+            "image_height",
+            "image_width",
+            "layout_version",
+            "box_x1",
+            "box_y1",
+            "box_x2",
+            "box_y2",
+        ):
+            record.pop(key)
+    store._collection.upsert(
+        ids=["model-1:legacy:0", "model-1:legacy:1"],
         embeddings=[[1.0, 0.0], [0.0, 1.0]],
         metadatas=records,
     )

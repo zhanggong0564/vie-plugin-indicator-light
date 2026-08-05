@@ -30,12 +30,22 @@ def _descriptor(**overrides) -> RegistrationDescriptor:
     return RegistrationDescriptor(**values)
 
 
+def _inference_result(embeddings=((1.0, 0.0),)):
+    return SimpleNamespace(
+        embeddings=[list(vector) for vector in embeddings],
+        boxes=[[1, 1, 2, 2] for _ in embeddings],
+        image_shape=(10, 10),
+    )
+
+
 def _generation(descriptor: RegistrationDescriptor, pipeline: str = "pipeline"):
     return CachedEmbeddingGeneration.create(
         descriptor.registration_id,
         descriptor.source_fingerprint,
         pipeline,
         [[1.0, 0.0], [0.0, 1.0]],
+        boxes=[[1, 1, 2, 2], [3, 3, 4, 4]],
+        image_shape=(10, 10),
         material_no=descriptor.material_no,
         version=descriptor.version,
     )
@@ -45,7 +55,7 @@ def _resolver(store, downloader=None, infer=None, **kwargs) -> RegistrationResol
     return RegistrationResolver(
         store=store,
         downloader=downloader or Mock(return_value=object()),
-        infer=infer or Mock(return_value=SimpleNamespace(embeddings=[[1.0, 0.0]])),
+        infer=infer or Mock(return_value=_inference_result()),
         pipeline_fingerprint=kwargs.pop("pipeline_fingerprint", "pipeline"),
         download_options=kwargs.pop("download_options", {"timeout": (1.0, 2.0)}),
         **kwargs,
@@ -62,7 +72,7 @@ def test_cache_hit_skips_download_inference_and_write():
 
     result = _resolver(store, downloader, infer).resolve(descriptor)
 
-    assert result == generation.embeddings
+    assert result.generation == generation
     store.get.assert_called_once_with(
         descriptor.registration_id,
         descriptor.source_fingerprint,
@@ -76,7 +86,8 @@ def test_cache_hit_skips_download_inference_and_write():
 def test_cache_hit_downloads_only_when_daily_archive_is_missing():
     descriptor = _descriptor()
     store = Mock()
-    store.get.return_value = _generation(descriptor)
+    generation = _generation(descriptor)
+    store.get.return_value = generation
     image = object()
     downloader = Mock(return_value=image)
     callback = Mock()
@@ -89,7 +100,7 @@ def test_cache_hit_downloads_only_when_daily_archive_is_missing():
         image_required=Mock(return_value=True),
     ).resolve(descriptor)
 
-    assert result == _generation(descriptor).embeddings
+    assert result.generation == generation
     downloader.assert_called_once_with(descriptor.model_file, timeout=(1.0, 2.0))
     callback.assert_called_once_with(descriptor, image)
 
@@ -102,15 +113,19 @@ def test_fingerprint_mismatch_is_treated_as_cache_miss(mismatch):
         "different" if mismatch == "source" else descriptor.source_fingerprint,
         "different" if mismatch == "pipeline" else "pipeline",
         [[1.0, 0.0]],
+        boxes=[[1, 1, 2, 2]],
+        image_shape=(10, 10),
     )
     store = Mock()
     store.get.side_effect = [generation, None]
     downloader = Mock(return_value="image")
-    infer = Mock(return_value=SimpleNamespace(embeddings=[[0.0, 1.0]]))
+    infer = Mock(return_value=SimpleNamespace(
+        embeddings=[[0.0, 1.0]], boxes=[[1, 1, 2, 2]], image_shape=(10, 10)
+    ))
 
     result = _resolver(store, downloader, infer).resolve(descriptor)
 
-    assert result == ((0.0, 1.0),)
+    assert result.generation.embeddings == ((0.0, 1.0),)
     downloader.assert_called_once_with(
         descriptor.model_file,
         timeout=(1.0, 2.0),
@@ -124,11 +139,15 @@ def test_cache_miss_downloads_infers_validates_and_writes_once():
     store = Mock()
     store.get.return_value = None
     downloader = Mock(return_value="image")
-    infer = Mock(return_value=SimpleNamespace(embeddings=[[1, 0], [0, 2]]))
+    infer = Mock(return_value=SimpleNamespace(
+        embeddings=[[1, 0], [0, 2]],
+        boxes=[[1, 1, 2, 2], [3, 3, 4, 4]],
+        image_shape=(10, 10),
+    ))
 
     result = _resolver(store, downloader, infer).resolve(descriptor)
 
-    assert result == ((1.0, 0.0), (0.0, 2.0))
+    assert result.generation.embeddings == ((1.0, 0.0), (0.0, 2.0))
     assert store.get.call_count == 2
     downloader.assert_called_once_with(
         descriptor.model_file,
@@ -169,7 +188,7 @@ def test_registration_archive_failure_does_not_block_inference():
         image_callback=Mock(side_effect=OSError("disk unavailable")),
     ).resolve(descriptor)
 
-    assert result == ((1.0, 0.0),)
+    assert result.generation.embeddings == ((1.0, 0.0),)
     store.replace.assert_called_once()
 
 
@@ -186,6 +205,8 @@ def test_diagnostic_metadata_mismatch_is_treated_as_cache_miss(field):
         descriptor.source_fingerprint,
         "pipeline",
         [[1.0, 0.0]],
+        boxes=[[1, 1, 2, 2]],
+        image_shape=(10, 10),
         **values,
     )
     store = Mock()
@@ -204,7 +225,7 @@ def test_write_failure_returns_fresh_embeddings():
 
     result = _resolver(store).resolve(descriptor)
 
-    assert result == ((1.0, 0.0),)
+    assert result.generation.embeddings == ((1.0, 0.0),)
 
 
 @pytest.mark.parametrize("stage", ["read", "write"])
@@ -241,7 +262,7 @@ def test_read_failure_falls_back_to_registration():
 
     result = _resolver(store).resolve(descriptor)
 
-    assert result == ((1.0, 0.0),)
+    assert result.generation.embeddings == ((1.0, 0.0),)
     assert store.get.call_count == 2
     store.replace.assert_called_once()
 
@@ -255,7 +276,7 @@ def test_missing_embeddings_propagates_validation_failure(inference_result):
     store.get.return_value = None
     resolver = _resolver(store, infer=Mock(return_value=inference_result))
 
-    with pytest.raises(ValueError, match="inference result must expose non-null embeddings"):
+    with pytest.raises(ValueError, match="must expose embeddings, boxes, and image_shape"):
         resolver.resolve(_descriptor())
 
     store.replace.assert_not_called()
@@ -284,13 +305,13 @@ def test_lock_registry_is_released_after_registration_failure(failure_stage):
     store = Mock()
     store.get.return_value = None
     downloader = Mock(return_value="image")
-    infer = Mock(return_value=SimpleNamespace(embeddings=[[1.0, 0.0]]))
+    infer = Mock(return_value=_inference_result())
     if failure_stage == "download":
         downloader.side_effect = RuntimeError("download failed")
     elif failure_stage == "inference":
         infer.side_effect = RuntimeError("inference failed")
     else:
-        infer.return_value = SimpleNamespace(embeddings=[[0.0, 0.0]])
+        infer.return_value = _inference_result(((0.0, 0.0),))
     resolver = _resolver(store, downloader=downloader, infer=infer)
 
     expected_error = ValueError if failure_stage == "validation" else RuntimeError
@@ -323,7 +344,7 @@ def test_concurrent_same_id_misses_register_only_once():
         return "image"
 
     downloader = Mock(side_effect=download)
-    infer = Mock(return_value=SimpleNamespace(embeddings=[[1.0, 0.0]]))
+    infer = Mock(return_value=_inference_result())
     resolver = _resolver(Store(), downloader, infer)
 
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -336,7 +357,7 @@ def test_concurrent_same_id_misses_register_only_once():
         release_download.set()
         results = [first.result(), *(future.result() for future in remaining)]
 
-    assert results == [((1.0, 0.0),)] * 16
+    assert [result.generation.embeddings for result in results] == [((1.0, 0.0),)] * 16
     assert downloader.call_count == 1
     assert infer.call_count == 1
     assert resolver.lock_registry_size == 0
@@ -371,7 +392,7 @@ def test_two_resolvers_share_same_id_registration_lock():
 
     store = Store()
     downloader = Mock(side_effect=download)
-    infer = Mock(return_value=SimpleNamespace(embeddings=[[1.0, 0.0]]))
+    infer = Mock(return_value=_inference_result())
     first_resolver = _resolver(store, downloader, infer)
     second_resolver = _resolver(store, downloader, infer)
 
@@ -383,7 +404,10 @@ def test_two_resolvers_share_same_id_registration_lock():
         release_download.set()
         results = [first.result(), second.result()]
 
-    assert results == [((1.0, 0.0),), ((1.0, 0.0),)]
+    assert [result.generation.embeddings for result in results] == [
+        ((1.0, 0.0),),
+        ((1.0, 0.0),),
+    ]
     assert downloader.call_count == 1
     assert infer.call_count == 1
     assert first_resolver.lock_registry_size == 0
@@ -436,7 +460,10 @@ def test_different_registration_ids_do_not_serialize():
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(resolver.resolve, descriptors))
 
-    assert results == [((1.0, 0.0),), ((1.0, 0.0),)]
+    assert [result.generation.embeddings for result in results] == [
+        ((1.0, 0.0),),
+        ((1.0, 0.0),),
+    ]
     assert max_active == 2
     assert resolver.lock_registry_size == 0
 

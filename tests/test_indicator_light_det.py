@@ -5,8 +5,10 @@ import numpy as np
 import pytest
 
 from services.inference import TensorInfo
+from services.rfdetr import RFDetrInfer
 from schemas.exceptions import ModelInferenceError
 from vie_plugin_indicator_light.indicator_light_det import (
+    IndicatorLightDet,
     IndicatorLightDetRec,
     IndicatorLightRecognition,
 )
@@ -30,6 +32,24 @@ class FakeRunner:
             )
         )
         self.close = Mock()
+
+
+def test_indicator_detector_uses_single_class_rfdetr() -> None:
+    runner = FakeRunner(
+        input_infos=(TensorInfo("input", (1, 3, 768, 768), "tensor(float)"),),
+        output_infos=(
+            TensorInfo("dets", (1, 300, 4), "tensor(float)"),
+            TensorInfo("labels", (1, 300, 2), "tensor(float)"),
+        ),
+    )
+
+    detector = IndicatorLightDet(runner=runner, confThreshold=0.25)
+
+    assert issubclass(IndicatorLightDet, RFDetrInfer)
+    assert detector.nc == 1
+    assert detector.task == "det"
+    assert detector.id2name == {0: "roi"}
+    assert detector.confThreshold == 0.25
 
 
 def test_det_rec_batches_sorted_expanded_rois_and_aligns_results() -> None:

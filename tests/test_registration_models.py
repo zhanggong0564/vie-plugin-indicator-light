@@ -9,6 +9,9 @@ from vie_plugin_indicator_light.registration.models import (
     pipeline_fingerprint,
 )
 
+_BOXES = [[10, 10, 20, 20], [30, 30, 40, 40]]
+_IMAGE_SHAPE = (100, 100)
+
 
 def _descriptor(**overrides):
     values = {
@@ -62,6 +65,8 @@ def test_generation_create_normalizes_vectors_and_generates_identity():
         source_fingerprint="source-fingerprint",
         pipeline_fingerprint="pipeline-fingerprint",
         embeddings=[[1, 2], [3.5, 4]],
+        boxes=_BOXES,
+        image_shape=_IMAGE_SHAPE,
         material_no="A0SW1821",
         version=1,
     )
@@ -76,6 +81,8 @@ def test_generation_create_normalizes_vectors_and_generates_identity():
         source_fingerprint="source-fingerprint",
         pipeline_fingerprint="pipeline-fingerprint",
         embeddings=[[1, 2]],
+        boxes=_BOXES[:1],
+        image_shape=_IMAGE_SHAPE,
     ).generation_id
 
     with pytest.raises(FrozenInstanceError):
@@ -95,6 +102,8 @@ def test_generation_create_accepts_legacy_singleton_wrappers():
         source_fingerprint="source-fingerprint",
         pipeline_fingerprint="pipeline-fingerprint",
         embeddings=[[[1, 2]]],
+        boxes=_BOXES[:1],
+        image_shape=_IMAGE_SHAPE,
     )
 
     assert generation.embeddings == ((1.0, 2.0),)
@@ -135,6 +144,8 @@ def test_generation_rejects_invalid_vectors(embeddings, message):
             source_fingerprint="source-fingerprint",
             pipeline_fingerprint="pipeline-fingerprint",
             embeddings=embeddings,
+            boxes=_BOXES[:len(embeddings)],
+            image_shape=_IMAGE_SHAPE,
         )
 
 
@@ -146,6 +157,8 @@ def test_generation_rejects_non_finite_values(value):
             source_fingerprint="source-fingerprint",
             pipeline_fingerprint="pipeline-fingerprint",
             embeddings=[[1, value]],
+            boxes=_BOXES[:1],
+            image_shape=_IMAGE_SHAPE,
         )
 
 
