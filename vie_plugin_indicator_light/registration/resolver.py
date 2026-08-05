@@ -65,6 +65,12 @@ class RegistrationInfer(Protocol):
     def __call__(self, image: Any) -> InferenceResult: ...
 
 
+@dataclass(frozen=True)
+class ResolvedRegistration:
+    generation: CachedEmbeddingGeneration
+    image: Any | None = None
+
+
 class RegistrationResolver:
     def __init__(
         self,
@@ -89,17 +95,17 @@ class RegistrationResolver:
     def resolve(
         self,
         descriptor: RegistrationDescriptor,
-    ) -> tuple[tuple[float, ...], ...]:
+    ) -> ResolvedRegistration:
         cached = self._safe_get(descriptor)
         if cached is not None:
             self._archive_cached_registration_if_needed(descriptor)
-            return cached.embeddings
+            return ResolvedRegistration(cached)
 
         with self._locks.acquire(descriptor.registration_id):
             cached = self._safe_get(descriptor)
             if cached is not None:
                 self._archive_cached_registration_if_needed(descriptor)
-                return cached.embeddings
+                return ResolvedRegistration(cached)
 
             image = self._downloader(
                 descriptor.model_file,
@@ -116,20 +122,37 @@ class RegistrationResolver:
                     )
             inference_result = self._infer(image)
             embeddings = getattr(inference_result, "embeddings", None)
-            if embeddings is None:
+            boxes = getattr(inference_result, "boxes", None)
+            image_shape = getattr(inference_result, "image_shape", None)
+            if embeddings is None or boxes is None or image_shape is None:
                 raise ValueError(
-                    "inference result must expose non-null embeddings"
+                    "inference result must expose embeddings, boxes, and image_shape"
                 )
             generation = CachedEmbeddingGeneration.create(
                 registration_id=descriptor.registration_id,
                 source_fingerprint=descriptor.source_fingerprint,
                 pipeline_fingerprint=self._pipeline_fingerprint,
                 embeddings=embeddings,
+                boxes=boxes,
+                image_shape=image_shape,
                 material_no=descriptor.material_no,
                 version=descriptor.version,
             )
             self._safe_replace(generation)
-            return generation.embeddings
+            return ResolvedRegistration(generation, image)
+
+    def download_image(self, descriptor: RegistrationDescriptor) -> Any:
+        image = self._downloader(descriptor.model_file, **self._download_options)
+        if self._image_callback is not None:
+            try:
+                self._image_callback(descriptor, image)
+            except Exception as exc:
+                vision_logger.warning(
+                    "注册图归档失败: registration_id={}, error_type={}",
+                    descriptor.registration_id,
+                    type(exc).__name__,
+                )
+        return image
 
     def _archive_cached_registration_if_needed(
         self,

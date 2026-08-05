@@ -7,15 +7,19 @@ from .models import (
 
 def __getattr__(name: str):
     """Keep legacy explicit imports lazy while the package import stays lightweight."""
-    if name == "RegistrationResolver":
-        from .resolver import RegistrationResolver
+    if name in ("RegistrationResolver", "ResolvedRegistration"):
+        from .resolver import RegistrationResolver, ResolvedRegistration
 
-        return RegistrationResolver
+        return {
+            "RegistrationResolver": RegistrationResolver,
+            "ResolvedRegistration": ResolvedRegistration,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
     "CachedEmbeddingGeneration",
     "RegistrationDescriptor",
+    "ResolvedRegistration",
     "pipeline_fingerprint",
 ]

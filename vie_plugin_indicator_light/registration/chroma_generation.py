@@ -19,6 +19,9 @@ _REQUIRED_METADATA = (
     "created_at",
     "material_no",
     "version",
+    "image_height",
+    "image_width",
+    "layout_version",
 )
 
 GenerationRecord = tuple[str, Mapping[str, Any], Sequence[float]]
@@ -64,11 +67,17 @@ def parse_generation(
         vector_dimension = positive_integer(first["vector_dimension"])
         created_at = finite_number(first["created_at"])
         version = signed_integer(first["version"])
+        image_height = positive_integer(first["image_height"])
+        image_width = positive_integer(first["image_width"])
+        layout_version = positive_integer(first["layout_version"])
         if (
             roi_count is None
             or vector_dimension is None
             or created_at is None
             or version is None
+            or image_height is None
+            or image_width is None
+            or layout_version != 1
             or not isinstance(first["material_no"], str)
         ):
             return None
@@ -96,6 +105,10 @@ def parse_generation(
         )
         if any(len(vector) != vector_dimension for vector in embeddings):
             return None
+        boxes = tuple(
+            tuple(float(metadata[key]) for key in ("box_x1", "box_y1", "box_x2", "box_y2"))
+            for _, (_, metadata, _) in ordered
+        )
 
         generation = CachedEmbeddingGeneration(
             registration_id=str(first["registration_id"]),
@@ -103,6 +116,9 @@ def parse_generation(
             pipeline_fingerprint=str(first["pipeline_fingerprint"]),
             generation_id=generation_id,
             embeddings=embeddings,
+            boxes=boxes,
+            image_shape=(image_height, image_width),
+            layout_version=layout_version,
             material_no=first["material_no"],
             version=version,
         )

@@ -23,6 +23,10 @@ from utils import vision_logger
 from .config import IndicatorLightConfig
 from .download import download_image
 from .indicator_light_det import IndicatorLightDetRec
+from .layout_matching import (
+    match_layout_fast,
+    match_layout_orb,
+)
 from .registration.models import RegistrationDescriptor, pipeline_fingerprint
 from .registration.resolver import RegistrationResolver
 from .registration.store import NullRegistrationStore
@@ -190,7 +194,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                 ) from exc
 
             try:
-                embeddings = self.registration_resolver.resolve(descriptor)
+                resolved = self.registration_resolver.resolve(descriptor)
             except VisionAPIError:
                 raise
             except Exception as exc:
@@ -200,15 +204,17 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
                     original_error=exc,
                 ) from exc
             ctx.extra = dict(ctx.extra)
-            ctx.extra["registered_result"] = IndicatorLightEmbedding(
-                embeddings=[list(vector) for vector in embeddings]
-            )
+            ctx.extra["registered_result"] = resolved.generation.to_inference_result()
+            ctx.extra["registration_descriptor"] = descriptor
+            if resolved.image is not None:
+                ctx.extra["registered_image"] = resolved.image
             return
 
         registered = ctx.registered
         if registered is not None and len(registered) > 0:
             ctx.extra = dict(ctx.extra)
             ctx.extra["registered_result"] = self.detector.infer(registered)
+            ctx.extra["registered_image"] = registered
 
     def business_post_process(self, ctx: InferenceContext) -> None:
         result = ctx.raw_result  # 当前图 IndicatorLightEmbedding（模板已对 ctx.image 推理）
@@ -216,7 +222,91 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
         if result_registered is None:
             ctx.result = MoMResult(status=False, error_msg="缺少注册参考图(registered)", message="失败")
             return
-        ctx.result = self._compare(result, result_registered)
+        self._validate_result_layout(result, "当前图")
+        self._validate_result_layout(result_registered, "注册图")
+        layout_match = match_layout_fast(result_registered, result)
+        if layout_match is None and len(result.embeddings) >= len(result_registered.embeddings):
+            registered_image = ctx.extra.get("registered_image")
+            descriptor = ctx.extra.get("registration_descriptor")
+            if registered_image is None and descriptor is not None:
+                archived_path = self._registered_image_path(descriptor)
+                if os.path.exists(archived_path):
+                    registered_image = cv2.imread(archived_path)
+                    if registered_image is None:
+                        vision_logger.warning(
+                            "指示灯归档注册图读取失败: registration_id={}",
+                            descriptor.registration_id,
+                        )
+            if registered_image is None and descriptor is not None:
+                try:
+                    registered_image = self.registration_resolver.download_image(descriptor)
+                except Exception as exc:
+                    vision_logger.warning(
+                        "指示灯异常配准读取注册图失败: registration_id={}, error_type={}",
+                        descriptor.registration_id,
+                        type(exc).__name__,
+                    )
+            if registered_image is not None:
+                try:
+                    layout_match = match_layout_orb(
+                        result_registered,
+                        result,
+                        registered_image,
+                        ctx.image,
+                    )
+                except (cv2.error, TypeError, ValueError) as exc:
+                    vision_logger.warning(
+                        "指示灯 ORB 配准失败: error_type={}",
+                        type(exc).__name__,
+                    )
+        if layout_match is None:
+            ctx.result = self._unmatch_result(
+                len(result_registered.embeddings),
+                len(result.embeddings),
+            )
+            return
+        if layout_match.extra_current_indices:
+            vision_logger.warning(
+                "指示灯忽略未匹配候选框: category=unmatched_extra_detection, count={}, method={}",
+                len(layout_match.extra_current_indices),
+                layout_match.method,
+            )
+        ctx.result = self._compare(result, result_registered, layout_match.pairs)
+
+    @staticmethod
+    def _validate_result_layout(result: IndicatorLightEmbedding, label: str) -> None:
+        if result.embeddings is None or result.boxes is None:
+            raise ModelInferenceError(
+                f"indicator_light {label} embeddings 或 boxes 为空",
+                scenario="indicator_light",
+            )
+        if len(result.embeddings) != len(result.boxes):
+            raise ModelInferenceError(
+                f"indicator_light {label} boxes 与 embeddings 数量不一致",
+                scenario="indicator_light",
+            )
+
+    @staticmethod
+    def _unmatch_result(registered_count: int, current_count: int) -> IndicatorResult:
+        if registered_count == current_count:
+            reason = (
+                "Indicator counts match, but the layout cannot be matched reliably "
+                f"({registered_count})."
+            )
+        else:
+            reason = (
+                "Unable to match all registered indicator positions "
+                f"{registered_count}!={current_count}."
+            )
+        return IndicatorResult(
+            status=False,
+            error_msg=reason,
+            message="失败",
+            detailList=[
+                DetectionItem(status=False, scene="", coordinate=[], accuracy=0.0)
+            ],
+            backflow_category="unmatch",
+        )
 
     @staticmethod
     def _embedding_array(value, label: str) -> np.ndarray:
@@ -236,7 +326,10 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             )
 
     def _compare(
-        self, results: IndicatorLightEmbedding, result_registered: IndicatorLightEmbedding
+        self,
+        results: IndicatorLightEmbedding,
+        result_registered: IndicatorLightEmbedding,
+        pairs=None,
     ) -> MoMResult:
         if result_registered is None:
             raise ModelInferenceError("indicator_light 缺少注册参考图推理结果", scenario="indicator_light")
@@ -249,16 +342,6 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
         current_embeddings = results.embeddings
         if current_embeddings is None:
             raise ModelInferenceError("indicator_light 未找到当前图特征", scenario="indicator_light")
-        if len(standard_embeddings) != len(current_embeddings):
-            vision_logger.warning("检测到的指示灯数量与注册的标准特征数量不匹配，可能导致比对结果异常")
-            return IndicatorResult(
-                status=False,
-                error_msg=f"Number of ROIs does not match the registered standard image "
-                          f"{len(standard_embeddings)}!={len(current_embeddings)}.",
-                message="失败",
-                detailList=[DetectionItem(status=False, scene="", coordinate=[], accuracy=0.0)],
-                backflow_category="unmatch",
-            )
         if results.boxes is None:
             raise ModelInferenceError("indicator_light boxes 为空", scenario="indicator_light")
         if len(results.boxes) < len(current_embeddings):
@@ -268,9 +351,16 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             )
         flag_status = True
         detect_results = MoMResult()
-        for i, (std_embedding, embedding) in enumerate(zip(standard_embeddings, current_embeddings)):
+        if pairs is None:
+            pairs = tuple(
+                (index, index)
+                for index in range(min(len(standard_embeddings), len(current_embeddings)))
+            )
+        for registered_index, current_index in pairs:
+            std_embedding = standard_embeddings[registered_index]
+            embedding = current_embeddings[current_index]
             detectionitem = self.compare_embedding(std_embedding, embedding)
-            detectionitem.coordinate = results.boxes[i][:4]  # 像素 xyxy，归一化交 normalize_hook
+            detectionitem.coordinate = results.boxes[current_index][:4]
             detect_results.detailList.append(detectionitem)
             if detectionitem.status is False:
                 flag_status = False

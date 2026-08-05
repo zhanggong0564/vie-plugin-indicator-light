@@ -11,14 +11,8 @@ from typing import Any, Mapping, Sequence
 import chromadb
 
 from .chroma_generation import (
-    MAX_INT64,
-    MIN_INT64,
     complete_generations,
-    finite_number,
-    nonnegative_integer,
     parse_generation,
-    positive_integer,
-    signed_integer,
 )
 from .models import CachedEmbeddingGeneration
 
@@ -109,6 +103,13 @@ class ChromaRegistrationStore:
                 "created_at": created_at,
                 "material_no": generation.material_no,
                 "version": generation.version,
+                "image_height": generation.image_shape[0],
+                "image_width": generation.image_shape[1],
+                "layout_version": generation.layout_version,
+                "box_x1": generation.boxes[index][0],
+                "box_y1": generation.boxes[index][1],
+                "box_x2": generation.boxes[index][2],
+                "box_y2": generation.boxes[index][3],
             }
             for index in range(roi_count)
         ]
@@ -162,10 +163,13 @@ class ChromaRegistrationStore:
             or actual.generation_id != expected.generation_id
             or actual.material_no != expected.material_no
             or actual.version != expected.version
+            or actual.image_shape != expected.image_shape
+            or actual.layout_version != expected.layout_version
             or len(actual.embeddings) != len(expected.embeddings)
+            or len(actual.boxes) != len(expected.boxes)
         ):
             return False
-        return all(
+        embeddings_match = all(
             len(actual_vector) == len(expected_vector)
             and all(
                 isclose(actual_value, expected_value, rel_tol=1e-6, abs_tol=1e-7)
@@ -177,6 +181,14 @@ class ChromaRegistrationStore:
                 actual.embeddings, expected.embeddings
             )
         )
+        boxes_match = all(
+            all(
+                isclose(actual_value, expected_value, rel_tol=1e-6, abs_tol=1e-7)
+                for actual_value, expected_value in zip(actual_box, expected_box)
+            )
+            for actual_box, expected_box in zip(actual.boxes, expected.boxes)
+        )
+        return embeddings_match and boxes_match
 
     @classmethod
     def _complete_generations(
@@ -191,19 +203,3 @@ class ChromaRegistrationStore:
         records: list[tuple[str, Mapping[str, Any], Sequence[float]]],
     ) -> tuple[int | float, CachedEmbeddingGeneration] | None:
         return parse_generation(generation_id, records)
-
-    @staticmethod
-    def _positive_integer(value: Any) -> int | None:
-        return positive_integer(value)
-
-    @staticmethod
-    def _nonnegative_integer(value: Any) -> int | None:
-        return nonnegative_integer(value)
-
-    @staticmethod
-    def _signed_integer(value: Any) -> int | None:
-        return signed_integer(value)
-
-    @staticmethod
-    def _finite_number(value: Any) -> int | float | None:
-        return finite_number(value)

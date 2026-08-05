@@ -1,4 +1,4 @@
-"""指示灯检测器：YOLO 检测 roi + 分类模型出 embedding，组合成 IndicatorLightDetRec。
+"""指示灯检测器：RF-DETR 检测 roi + 分类模型出 embedding，组合成 IndicatorLightDetRec。
 
 模型保持无每请求状态：preprocess 返回 tensor 和 PreprocMeta，post_process 消费二者。
 """
@@ -10,29 +10,26 @@ import numpy as np
 
 from services.base import BaseVisionInfer
 from services.inference import InferenceRunner
+from services.rfdetr import RFDetrInfer
 from services.vision.boxes import sort_boxes
-from services.yolo import YoloInfer
 from schemas.data_base import IndicatorLightEmbedding
 from schemas.exceptions import ModelInferenceError
 from schemas.inference_context import PreprocMeta
 
 
-class IndicatorLightDet(YoloInfer):
+class IndicatorLightDet(RFDetrInfer):
     """指示灯 roi 检测（单类 det）。"""
 
     def __init__(
         self,
         runner: InferenceRunner,
         confThreshold=0.5,
-        nmsThreshold=0.5,
-        task="det",
     ):
         super().__init__(
             nc=1,
             runner=runner,
             confThreshold=confThreshold,
-            nmsThreshold=nmsThreshold,
-            task=task,
+            task="det",
         )
         self.id2name = {0: "roi"}
 
@@ -141,12 +138,10 @@ class IndicatorLightDetRec:
         detection_runner: InferenceRunner,
         recognition_runner: InferenceRunner,
         confThreshold=0.5,
-        nmsThreshold=0.5,
     ):
         self.det = IndicatorLightDet(
-            detection_runner,
-            confThreshold,
-            nmsThreshold,
+            runner=detection_runner,
+            confThreshold=confThreshold,
         )
         self.rec = IndicatorLightRecognition(runner=recognition_runner)
 
@@ -158,7 +153,7 @@ class IndicatorLightDetRec:
             x1, y1, x2, y2 = map(int, box[:4])
             boxes.append([x1, y1, x2, y2, score])
         if not boxes:
-            return IndicatorLightEmbedding()
+            return IndicatorLightEmbedding(image_shape=(h, w))
         sorted_boxes = np.array(sort_boxes(boxes)[0])  # 按 x1 排序
         rois = []
         for box in sorted_boxes:
@@ -175,6 +170,7 @@ class IndicatorLightDetRec:
             embeddings=embedding_array.tolist(),
             boxes=sorted_boxes[:, :4].tolist(),
             scores=sorted_boxes[:, 4].tolist(),
+            image_shape=(h, w),
         )
 
     def close(self) -> None:
