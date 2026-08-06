@@ -8,11 +8,14 @@ embedding，再按注册灯位布局建立几何对应关系并比较状态。�
 
 - 路径：`POST /api/v1/indicator_light_detect`
 - 表单字段：`file` 为当前图，`json_data` 为 JSON 字符串
-- `type`：物料号，也是回流数据目录键
-- `modelParams.type`：用于匹配 `AICameraModel.Version`
+- `type`：物料号，也是回流数据目录键；尾部 `-1/-2` 会归一化到基础物料号
+- `modelParams.type`：用于匹配 `AICameraModel.Version`，并作为物料号下的版本目录
 - `AICameraModel[].ModelFile`：注册参考图地址
 
 注册模式字段在 JSON 中仍使用 `modelParams.register`，当前仅保留契约。
+
+回流数据按 `data/indicator_light/{日期}/{基础物料号}/{版本}/...` 归档，例如
+`A0SW2163-1`、版本 1 会写入 `A0SW2163/1/`。
 
 ## 模型
 
