@@ -324,7 +324,7 @@ def test_initialization_uses_model_fingerprint_and_secure_download_options():
         IndicatorLightBusinessAPI(MagicMock())
 
     fingerprint.assert_called_once_with(
-        "./weights/indicator_light/rfdetr-small.onnx",
+        "./weights/indicator_light/rfdetr-small_v1.1.onnx",
         "./weights/indicator_light/rec_v3.onnx",
     )
     store_factory.assert_called_once_with(

@@ -9,7 +9,7 @@ def test_config_defaults(monkeypatch):
 
     config = IndicatorLightConfig()
 
-    assert config.det_model_path.endswith("rfdetr-small.onnx")
+    assert config.det_model_path.endswith("rfdetr-small_v1.1.onnx")
     assert config.vector_cache_enabled is True
     assert config.allowed_host_values == ()
 

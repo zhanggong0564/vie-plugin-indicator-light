@@ -44,7 +44,7 @@ def test_business_initialization_creates_and_injects_both_runners():
         call(
             RunnerSpec(
                 scenario="indicator_light",
-                onnx_path="./weights/indicator_light/rfdetr-small.onnx",
+                onnx_path="./weights/indicator_light/rfdetr-small_v1.1.onnx",
             ),
             options,
         ),
