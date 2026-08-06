@@ -4,6 +4,7 @@ import importlib.util
 import socket
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -251,10 +252,52 @@ def test_get_inputs_uses_last_matching_model(plugin_module):
 def test_backflow_target_uses_filename_timestamp(plugin_module):
     target = plugin_module.indicator_router.resolve_backflow_target(
         "风电-整机组装1-231-1782460558709.jpg",
-        "A0SW1821",
+        "A0SW1821/1",
     )
 
     assert target.save_stem == "1782460558709"
+    assert target.model_dir == "A0SW1821"
+    assert target.model_subdir == "1"
+
+
+@pytest.mark.parametrize(
+    ("material_no", "version", "expected"),
+    [
+        ("A0SW2163", 1, "A0SW2163/1"),
+        ("A0SW2163-1", 1, "A0SW2163/1"),
+        ("A0SW2163-2", 2, "A0SW2163/2"),
+    ],
+)
+def test_backflow_key_separates_material_and_version(
+    plugin_module, material_no, version, expected
+):
+    request = _request(
+        plugin_module,
+        [_model(version=version)],
+        version=version,
+    )
+    request.type = material_no
+
+    assert plugin_module.indicator_router._extract_product_type(request) == expected
+
+
+def test_backflow_paths_include_material_version_directory(plugin_module):
+    paths = plugin_module.indicator_router.backflow_service.resolve_paths(
+        "风电-1782460558709.jpg",
+        "2026-08-06T10:00:00.000",
+        "A0SW2163/2",
+        "unmatch",
+        ".jpg",
+    )
+
+    assert Path(paths["image_path"]).parts[-6:] == (
+        "2026-08-06",
+        "A0SW2163",
+        "2",
+        "unmatch",
+        "images",
+        "1782460558709.jpg",
+    )
 
 
 def test_backflow_count_mismatch_uses_unmatch_directory(plugin_module):

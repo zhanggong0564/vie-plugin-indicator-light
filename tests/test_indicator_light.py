@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 import os
+from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -71,6 +72,27 @@ def test_compare_embedding_identical(api):
     assert item.status is True        # cosine=1 → 1.0 > 0.7
     assert item.accuracy == 1.0
     assert item.scene == "roi"
+
+
+def test_registered_image_path_includes_material_version(tmp_path):
+    from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI
+    from vie_plugin_indicator_light.registration.models import RegistrationDescriptor
+
+    descriptor = RegistrationDescriptor(
+        registration_id="R123",
+        material_no="A0SW2163",
+        product_name="indicator",
+        version=2,
+        model_file="https://example.com/reference.jpg",
+        create_time=None,
+        update_time=None,
+        register_mode=False,
+    )
+
+    path = Path(IndicatorLightBusinessAPI._registered_image_path(descriptor))
+
+    assert path.is_relative_to(tmp_path)
+    assert path.parts[-4:] == ("A0SW2163", "2", "registered", "R123.jpg")
 
 
 def test_compare_embedding_orthogonal(api):
