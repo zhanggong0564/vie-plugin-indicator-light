@@ -162,6 +162,7 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
             "indicator_light",
             datetime.now().date().isoformat(),
             material_no,
+            BackflowService.sanitize_dir_name(str(descriptor.version)),
             "registered",
             f"{registration_id}.jpg",
         )

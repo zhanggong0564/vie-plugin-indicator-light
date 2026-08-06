@@ -29,16 +29,26 @@ class IndicatorRouter(BaseRouter):
 
     @staticmethod
     def _extract_product_type(request_params):
-        """数据回流按【物料号】分目录：取请求顶层 ``type``（如 A0SW2163）。
+        """返回“基础物料号/版本”，供数据回流建立两级目录。
 
-        注意区分两个同名 ``type``：
-          - 顶层 ``type``（物料号，如 A0SW2163）：产品唯一编码，是样本归集的正确键 → 作目录名。
-          - ``modelParams.type``（int 1/2）：仅用于在 AICameraModel 中按 Version 匹配注册参考图，
-            是版本选择器，所有产品都收敛到 1/2，对按产品归集样本无意义。
-        顶层 type 缺失时返回 None，框架回退到 _unknown_model 目录。
+        顶层 ``type`` 可为 ``A0SW2163`` 或 ``A0SW2163-1``；尾部 ``-1/-2``
+        会被去除。版本始终取实际用于匹配注册图的 ``modelParams.type``。
         """
-        t = getattr(request_params, "type", None)
-        return str(t).strip() if t else None
+        material_no = IndicatorRouter._base_material_no(
+            getattr(request_params, "type", None)
+        )
+        model_params = getattr(request_params, "modelParams", None)
+        version = getattr(model_params, "type", None)
+        if material_no is None or version is None:
+            return None
+        return f"{material_no}/{version}"
+
+    @staticmethod
+    def _base_material_no(value):
+        material_no = str(value).strip() if value else ""
+        if not material_no:
+            return None
+        return re.sub(r"-(?:1|2)$", "", material_no)
 
     def resolve_backflow_target(self, original_filename, fallback_product_type=None):
         """指示灯专属：沿用框架的场景/型号目录推导（型号=物料号，见 _extract_product_type），
@@ -46,11 +56,19 @@ class IndicatorRouter(BaseRouter):
         → '1782460558709'）。取不到时间戳则保留框架默认（原图名去扩展名）。
 
         最终落盘路径：
-            data/indicator_light/{YYYY-MM-DD}/{物料号}/{ok|ng|review|unmatch}/images|records/{时间戳}.{ext|json}
+            data/indicator_light/{YYYY-MM-DD}/{物料号}/{版本}/{ok|ng|review|unmatch}/images|records/{时间戳}.{ext|json}
         """
-        target = super().resolve_backflow_target(original_filename, fallback_product_type)
+        material_no = fallback_product_type
+        version = None
+        if fallback_product_type and "/" in fallback_product_type:
+            material_no, version = fallback_product_type.rsplit("/", 1)
+        target = super().resolve_backflow_target(original_filename, material_no)
         timestamp = self._extract_timestamp(original_filename)
-        return replace(target, save_stem=timestamp) if timestamp else target
+        return replace(
+            target,
+            save_stem=timestamp or target.save_stem,
+            model_subdir=version,
+        )
 
     @staticmethod
     def _extract_timestamp(filename):
@@ -74,7 +92,7 @@ class IndicatorRouter(BaseRouter):
 
         descriptor = RegistrationDescriptor(
             registration_id=selected_model.Id,
-            material_no=request_params.type,
+            material_no=self._base_material_no(request_params.type),
             product_name=selected_model.ProductName,
             version=selected_model.Version,
             model_file=selected_model.ModelFile,
