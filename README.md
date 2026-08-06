@@ -18,7 +18,7 @@ embedding，再按注册灯位布局建立几何对应关系并比较状态。�
 
 | 模型 | 默认路径 | 要求 |
 | --- | --- | --- |
-| ROI 检测 | `./weights/indicator_light/rfdetr-small.onnx` | 单类 RF-DETR 检测，固定输入 `1×3×768×768` |
+| ROI 检测 | `./weights/indicator_light/rfdetr-small_v1.1.onnx` | 单类 RF-DETR 检测，固定输入 `1×3×768×768` |
 | 特征识别 | `./weights/indicator_light/rec_v3.onnx` | 输入和输出必须支持动态 batch |
 
 固定 batch 的旧识别模型会在启动时被拒绝。全部 ROI 在一次 runner 调用中完成识别。
