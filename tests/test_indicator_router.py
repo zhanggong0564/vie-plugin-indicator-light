@@ -306,6 +306,12 @@ def test_backflow_count_mismatch_uses_unmatch_directory(plugin_module):
     ) == "unmatch"
 
 
+def test_backflow_count_mismatch_counts_as_ng(plugin_module):
+    assert plugin_module.indicator_router.backflow_service.classify_stats_result(
+        {"status": "false", "backflow_category": "unmatch"}
+    ) == "ng"
+
+
 def test_backflow_regular_failure_still_uses_ng_directory(plugin_module):
     assert plugin_module.indicator_router.backflow_service.classify_result(
         {"status": "false"}
