@@ -1,4 +1,5 @@
 """indicator_light 插件单元测试：注册向量解析、embedding 比对与错误分类。"""
+import cv2
 import numpy as np
 import pytest
 import os
@@ -93,6 +94,32 @@ def test_registered_image_path_includes_material_version(tmp_path):
 
     assert path.is_relative_to(tmp_path)
     assert path.parts[-4:] == ("A0SW2163", "2", "registered", "R123.jpg")
+
+
+def test_downloaded_registration_overwrites_archived_image_when_register_false(tmp_path):
+    from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI
+    from vie_plugin_indicator_light.registration.models import RegistrationDescriptor
+
+    descriptor = RegistrationDescriptor(
+        registration_id="R123",
+        material_no="A0SW2163",
+        product_name="indicator",
+        version=2,
+        model_file="https://example.com/reference.jpg",
+        create_time=None,
+        update_time=None,
+        register_mode=False,
+    )
+    target = Path(IndicatorLightBusinessAPI._registered_image_path(descriptor))
+    old_image = np.zeros((10, 10, 3), np.uint8)
+    new_image = np.full((10, 10, 3), 255, np.uint8)
+
+    IndicatorLightBusinessAPI._archive_registered_image(descriptor, old_image)
+    IndicatorLightBusinessAPI._archive_registered_image(descriptor, new_image)
+
+    archived = cv2.imread(str(target))
+    assert archived is not None
+    assert archived.mean() > 250
 
 
 def test_compare_embedding_orthogonal(api):
