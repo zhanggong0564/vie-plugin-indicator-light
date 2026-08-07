@@ -96,17 +96,36 @@ class RegistrationResolver:
         self,
         descriptor: RegistrationDescriptor,
     ) -> ResolvedRegistration:
-        cached = self._safe_get(descriptor)
-        if cached is not None:
-            self._archive_cached_registration_if_needed(descriptor)
-            return ResolvedRegistration(cached)
-
-        with self._locks.acquire(descriptor.registration_id):
+        force_refresh = descriptor.register_mode is True
+        if not force_refresh:
             cached = self._safe_get(descriptor)
             if cached is not None:
+                vision_logger.info(
+                    "注册向量缓存命中: registration_id={} source={}",
+                    descriptor.registration_id,
+                    descriptor.source_fingerprint[:12],
+                )
                 self._archive_cached_registration_if_needed(descriptor)
                 return ResolvedRegistration(cached)
 
+        with self._locks.acquire(descriptor.registration_id):
+            if not force_refresh:
+                cached = self._safe_get(descriptor)
+                if cached is not None:
+                    vision_logger.info(
+                        "注册向量缓存等待后命中: registration_id={} source={}",
+                        descriptor.registration_id,
+                        descriptor.source_fingerprint[:12],
+                    )
+                    self._archive_cached_registration_if_needed(descriptor)
+                    return ResolvedRegistration(cached)
+
+            vision_logger.info(
+                "注册向量刷新: registration_id={} reason={} source={}",
+                descriptor.registration_id,
+                "register_true" if force_refresh else "cache_miss_or_source_changed",
+                descriptor.source_fingerprint[:12],
+            )
             image = self._downloader(
                 descriptor.model_file,
                 **self._download_options,
