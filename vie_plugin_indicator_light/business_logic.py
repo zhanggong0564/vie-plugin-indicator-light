@@ -175,12 +175,17 @@ class IndicatorLightBusinessAPI(BusinessLogicBase):
     def _archive_registered_image(cls, descriptor, image: np.ndarray) -> None:
         """按日期和物料号保存实际参与比对的注册图。"""
         target = cls._registered_image_path(descriptor)
-        if os.path.exists(target):
-            return
+        replacing = os.path.exists(target)
         encoded, payload = cv2.imencode(".jpg", image)
         if not encoded:
             raise ValueError("指示灯注册图编码失败")
         write_bytes_atomically(payload.tobytes(), target)
+        vision_logger.info(
+            "指示灯注册图归档完成: registration_id={} replaced={} path={}",
+            descriptor.registration_id,
+            replacing,
+            target,
+        )
 
     def preprocess_hook(self, ctx: InferenceContext) -> None:
         registration_data = ctx.extra.get("registration")
