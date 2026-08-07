@@ -83,6 +83,29 @@ def test_cache_hit_skips_download_inference_and_write():
     store.replace.assert_not_called()
 
 
+def test_register_mode_forces_download_inference_and_cache_replace():
+    descriptor = _descriptor(register_mode=True)
+    cached = _generation(descriptor)
+    store = Mock()
+    store.get.return_value = cached
+    image = object()
+    downloader = Mock(return_value=image)
+    inference_result = _inference_result(((0.0, 1.0),))
+    infer = Mock(return_value=inference_result)
+
+    result = _resolver(store, downloader, infer).resolve(descriptor)
+
+    store.get.assert_not_called()
+    downloader.assert_called_once_with(
+        descriptor.model_file,
+        timeout=(1.0, 2.0),
+    )
+    infer.assert_called_once_with(image)
+    store.replace.assert_called_once_with(result.generation)
+    assert result.generation.embeddings == ((0.0, 1.0),)
+    assert result.image is image
+
+
 def test_cache_hit_downloads_only_when_daily_archive_is_missing():
     descriptor = _descriptor()
     store = Mock()
