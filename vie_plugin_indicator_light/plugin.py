@@ -10,6 +10,7 @@ from routers.backflow_service import BackflowService
 from routers.base_router import BaseRouter, DATA_DIR
 from schemas.data_base import InputParamsBusiness
 from schemas.exceptions import InvalidParamsError
+from utils import vision_logger
 from .registration.models import RegistrationDescriptor
 from .schemas import IndicatorRequest
 from . import business_logic  # noqa: F401  触发 ScenarioRegistry 注册
@@ -99,6 +100,12 @@ class IndicatorRouter(BaseRouter):
             create_time=selected_model.CreateTime,
             update_time=selected_model.UpdateTime,
             register_mode=request_params.modelParams.register_mode,
+        )
+        vision_logger.info(
+            "指示灯注册参考图已选择 registration_id={} version={} register_mode={}",
+            descriptor.registration_id,
+            descriptor.version,
+            descriptor.register_mode,
         )
         return InputParamsBusiness(
             image=image,
