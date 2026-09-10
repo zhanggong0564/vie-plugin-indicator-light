@@ -249,13 +249,23 @@ def test_get_inputs_uses_last_matching_model(plugin_module):
     }
 
 
-def test_backflow_target_uses_filename_timestamp(plugin_module):
+@pytest.mark.parametrize(
+    ("filename", "expected_stem"),
+    [
+        ("风电-整机组装1-231-1782460558709.jpg", "1782460558709"),
+        ("风电-整机组装1-23-1-1789009462570.jpg", "1789009462570"),
+        ("集中式-SG1100UD-AI拍照-直流侧-1-1-1789009471192.jpg", "1789009471192"),
+    ],
+)
+def test_backflow_target_uses_filename_timestamp(
+    plugin_module, filename, expected_stem
+):
     target = plugin_module.indicator_router.resolve_backflow_target(
-        "风电-整机组装1-231-1782460558709.jpg",
+        filename,
         "A0SW1821/1",
     )
 
-    assert target.save_stem == "1782460558709"
+    assert target.save_stem == expected_stem
     assert target.model_dir == "A0SW1821"
     assert target.model_subdir == "1"
 
