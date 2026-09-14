@@ -13,10 +13,15 @@ from schemas.exceptions import InvalidParamsError
 from utils import vision_logger
 from .registration.models import RegistrationDescriptor
 from .schemas import IndicatorRequest
+from schemas.inspection import InspectionVerdict
+from .response_docs import RESPONSE_EXAMPLES, RESPONSE_NOTES
 from . import business_logic  # noqa: F401  触发 ScenarioRegistry 注册
 
 
 class IndicatorRouter(BaseRouter):
+    response_document_verdicts = (InspectionVerdict.PASS, InspectionVerdict.FAIL)
+    response_document_notes = RESPONSE_NOTES
+    response_document_examples = RESPONSE_EXAMPLES
     request_document_model = IndicatorRequest
     request_document_example = {
         "product": "指示灯", "type": "物料号",
