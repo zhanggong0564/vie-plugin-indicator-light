@@ -17,6 +17,24 @@ from . import business_logic  # noqa: F401  触发 ScenarioRegistry 注册
 
 
 class IndicatorRouter(BaseRouter):
+    request_document_model = IndicatorRequest
+    request_document_example = {
+        "product": "指示灯", "type": "物料号",
+        "modelParams": {"type": 1, "register": False, "guide_line": [], "example_images": []},
+        "AICameraModel": [{
+            "Id": "registration-id", "Version": 1,
+            "ModelFile": "https://example.com/replace-with-registration-image.jpg",
+        }],
+    }
+    request_document_notes = (
+        "modelParams.type 是注册参考图版本号，与顶层物料号 type 含义不同。"
+        "AICameraModel 必须包含 Version 与 modelParams.type 匹配且 ModelFile 非空的记录；"
+        "同版本出现多条记录时取最后一条。示例 ModelFile 是占位地址，"
+        "真实推理前必须替换为服务可访问的注册参考图地址，并填写实际注册 Id、版本及物料号。"
+        "register=true 强制刷新参考图与向量缓存；false、null 或省略时允许复用有效缓存，"
+        "来源信息变化或缓存未命中仍会重新获取。guide_line/example_images 不用于选择注册图。"
+    )
+
     def __init__(self, router_name, api_path, summary, description, detector_type, tag=None):
         super().__init__(router_name, api_path, summary, description, detector_type, tag=tag)
         self.backflow_service = IndicatorBackflowService(
