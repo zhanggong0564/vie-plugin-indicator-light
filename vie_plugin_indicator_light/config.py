@@ -16,7 +16,7 @@ class IndicatorLightConfig(SceneSettings):
     det_model_path: str = "./weights/indicator_light/rfdetr-small_v1.1.onnx"
     rec_model_path: str = "./weights/indicator_light/rec_v3.onnx"
     det_conf_threshold: float = Field(default=0.8, ge=0, le=1)
-    sim_threshold: float = Field(default=0.65, ge=0, le=1)
+    sim_threshold: float = Field(default=0.80, ge=0, le=1)
     vector_cache_enabled: bool = True
     vector_cache_path: str = "./data/indicator_light/chroma"
     vector_collection: str = "registered_embeddings"
