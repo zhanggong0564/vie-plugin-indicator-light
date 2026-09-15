@@ -37,3 +37,10 @@ def test_config_rejects_invalid_boolean(monkeypatch):
 
     with pytest.raises(ValidationError):
         IndicatorLightConfig()
+
+
+def test_similarity_threshold_default_and_override(monkeypatch):
+    monkeypatch.delenv("INDICATOR_SIM_THRESHOLD", raising=False)
+    assert IndicatorLightConfig(_env_file=None).sim_threshold == 0.80
+    monkeypatch.setenv("INDICATOR_SIM_THRESHOLD", "0.75")
+    assert IndicatorLightConfig(_env_file=None).sim_threshold == 0.75
