@@ -4,12 +4,13 @@ import pytest
 
 from vie_plugin_indicator_light.business_logic import IndicatorLightBusinessAPI
 from vie_plugin_indicator_light.response_docs import RESPONSE_EXAMPLES
+from vie_plugin_indicator_light.config import IndicatorLightConfig
 
 
 @pytest.mark.parametrize("name", ["PASS", "FAIL"])
 def test_documented_similarity_matches_comparison(name):
     api = object.__new__(IndicatorLightBusinessAPI)
-    api.sim_thr = 0.65
+    api.sim_thr = IndicatorLightConfig.model_fields["sim_threshold"].default
     for item in RESPONSE_EXAMPLES[name]["result"]["detailList"]:
         cosine = item["accuracy"] * 2 - 1
         actual = api.compare_embedding([1.0, 0.0], [cosine, np.sqrt(1 - cosine ** 2)]).to_dict()
