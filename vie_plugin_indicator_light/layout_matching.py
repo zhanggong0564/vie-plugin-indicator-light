@@ -153,6 +153,58 @@ def _resize_gray(image: np.ndarray, max_side: int = 1600):
     return cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY), scale
 
 
+
+def _complete_single_region_match(registered_boxes, projected_boxes, pairs):
+    """Recover one expanded ROI only when the other positions anchor registration.
+
+    Preserve existing center matches; reject missing, ambiguous and oversized ROIs.
+    Coordinates for both sets of polygons must be in registered-image pixels.
+    """
+    count = len(registered_boxes)
+    if count < 5 or len(pairs) != count - 1:
+        return None
+    used_registered = {i for i, _ in pairs}
+    used_current = {j for _, j in pairs}
+    missing = next(i for i in range(count) if i not in used_registered)
+    reference = np.asarray(registered_boxes[missing], dtype=np.float32)
+    reference_area = cv2.contourArea(reference)
+    if reference_area <= 0:
+        return None
+    center = tuple(float(v) for v in reference.mean(axis=0))
+    candidates = []
+    for index, polygon in enumerate(projected_boxes):
+        if index in used_current:
+            continue
+        polygon = np.asarray(polygon, dtype=np.float32)
+        if not np.isfinite(polygon).all() or not cv2.isContourConvex(polygon):
+            continue
+        area = cv2.contourArea(polygon)
+        if not 1.0 <= area / reference_area <= 5.0:
+            continue
+        if cv2.pointPolygonTest(polygon, center, False) < 0:
+            continue
+        overlap, _ = cv2.intersectConvexConvex(reference, polygon)
+        if overlap / min(area, reference_area) < 0.65:
+            continue
+        # An expanded box must not cover another registered control center.
+        if any(
+            cv2.pointPolygonTest(
+                polygon, tuple(float(v) for v in np.mean(box, axis=0)), False
+            ) >= 0
+            for i, box in enumerate(registered_boxes) if i != missing
+        ):
+            continue
+        candidates.append(index)
+    if len(candidates) != 1:
+        return None
+    return tuple(sorted((*pairs, (missing, candidates[0]))))
+
+
+def _box_corners(boxes):
+    array = np.asarray(boxes, dtype=np.float32)
+    return array[:, [0, 1, 2, 1, 2, 3, 0, 3]].reshape(-1, 4, 2)
+
+
 def match_layout_orb(
     registered_result,
     current_result,
@@ -210,14 +262,23 @@ def match_layout_orb(
     projected[:, 1] /= registered_gray.shape[0]
     gate = _distance_gate(registered_centers)
     pairs, mean_distance = _greedy_pairs(registered_centers, projected, gate)
+    method = "orb"
     if len(pairs) != len(registered_centers):
-        return None
+        reference_corners = _box_corners(registered_result.boxes) * registered_scale
+        current_corners = _box_corners(current_result.boxes) * current_scale
+        projected_corners = cv2.perspectiveTransform(
+            current_corners.reshape(-1, 1, 2), homography
+        ).reshape(-1, 4, 2)
+        pairs = _complete_single_region_match(reference_corners, projected_corners, pairs)
+        if pairs is None:
+            return None
+        method = "orb_region"
     used = {current_index for _, current_index in pairs}
     return LayoutMatch(
         pairs=pairs,
         extra_current_indices=tuple(
             index for index in range(len(projected)) if index not in used
         ),
-        method="orb",
+        method=method,
         mean_distance=mean_distance,
     )
