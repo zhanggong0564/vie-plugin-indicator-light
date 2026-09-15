@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 指示灯默认相似度阈值由 0.65 提高到 0.80，与生产配置一致；同步接口文档，保留环境变量覆盖能力。
+
 ## [0.1.5] - 2026-09-14（Git tag: `v0.1.5`）
 
 - 移除从未参与推理的 `rec_conf_threshold`、`json_path` 和 `cache_enabled`
